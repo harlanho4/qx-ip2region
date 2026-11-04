@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node --test",
     "check": "node --check src/index.js && npm test",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "build": "npm run check"
   },
   "devDependencies": {
     "wrangler": "^4.45.0"
