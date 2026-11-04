@@ -3,18 +3,30 @@
  * [task_local]
  * event-interaction https://qx-ip2region.harlanho4.workers.dev/task.js, tag=GeoIP 查询, img-url=location.fill.viewfinder.system, enabled=true
  *
- * Queries the currently selected node's public egress IP using the same
- * private R2-backed ip2region database as geo_location_checker.
+ * IPv4-only lookup: discover egress IPv4 through selected policy using
+ * ipify's IPv4-specific endpoint, then locate it in our R2-backed XDB.
+ * The original /geo and /qx.js keep their current dual-stack behavior.
  */
 var geoNode = typeof $environment !== "undefined" && $environment &&
               typeof $environment.params === "string"
   ? $environment.params.trim() : "";
 var geoStart = Date.now();
-var geoRequest = {
-  url: "https://qx-ip2region.harlanho4.workers.dev/geo",
-  timeout: 6000
+var geoDetect = {
+  url: "https://api.ipify.org?format=json",
+  timeout: 5000
 };
-if (geoNode) geoRequest.opts = { policy: geoNode };
+if (geoNode) geoDetect.opts = { policy: geoNode };
+var geoExpectedIP = "";
+
+function isIPv4(value) {
+  if (typeof value !== "string") return false;
+  var parts = value.split(".");
+  if (parts.length !== 4) return false;
+  for (var i = 0; i < 4; i++) {
+    if (!/^(0|[1-9][0-9]{0,2})$/.test(parts[i]) || Number(parts[i]) > 255) return false;
+  }
+  return true;
+}
 
 function geoText(value) {
   if (value === null || value === undefined) return "";
@@ -41,13 +53,13 @@ function geoPanel(body) {
   var city = geoText(body.city);
   var isp = geoText(body.isp);
   var ip = geoText(body.query);
-  if (!ip) throw new Error("缺少出口 IP");
+  if (!isIPv4(ip) || ip !== geoExpectedIP) throw new Error("IPv4 结果不匹配");
 
   var places = [];
   if (province && province !== country) places.push(province);
   if (city && city !== province && city !== country) places.push(city);
   var location = places.join(" · ") || country;
-  var family = ip.indexOf(":") === -1 ? "IPv4" : "IPv6";
+  var family = "IPv4";
   var flag = geoFlag(body.countryCode);
   var ms = Math.max(0, Date.now() - geoStart);
 
@@ -79,19 +91,31 @@ function geoFail(reason) {
     '</div>';
   $done({ title: "GeoIP · 查询失败", htmlMessage: html });
 }
+function geoLookup(ip) {
+  var request = {
+    url: "https://qx-ip2region.harlanho4.workers.dev/lookup4?ip=" + encodeURIComponent(ip),
+    timeout: 6000
+  };
+  // Keep both requests on the selected Quantumult X policy.
+  if (geoNode) request.opts = { policy: geoNode };
+  return $task.fetch(request).then(function (response) {
+    var status = Number(response && (response.statusCode || response.status));
+    if (status !== 200) throw new Error("ip2region HTTP " + (status || "未知"));
+    var data = JSON.parse(response.body || "{}");
+    if (data.status !== "success") throw new Error("ip2region 数据暂不可用");
+    geoPanel(data);
+  });
+}
 try {
-  $task.fetch(geoRequest).then(function (response) {
-    try {
-      var status = Number(response && (response.statusCode || response.status));
-      if (status !== 200) throw new Error("HTTP " + (status || "未知"));
-      var data = JSON.parse(response.body || "{}");
-      if (data.status && data.status !== "success") throw new Error("GeoIP 数据暂不可用");
-      geoPanel(data);
-    } catch (error) {
-      geoFail(error.message || "解析失败");
-    }
-  }, function (error) {
-    geoFail(error && error.message ? error.message : "网络连接超时");
+  $task.fetch(geoDetect).then(function (response) {
+    var status = Number(response && (response.statusCode || response.status));
+    if (status !== 200) throw new Error("IPv4 检测 HTTP " + (status || "未知"));
+    var detected = JSON.parse(response.body || "{}").ip;
+    if (!isIPv4(detected)) throw new Error("节点没有返回有效的 IPv4");
+    geoExpectedIP = detected;
+    return geoLookup(detected);
+  }).catch(function (error) {
+    geoFail(error && error.message ? error.message : "IPv4 查询超时");
   });
 } catch (error) {
   geoFail(error && error.message ? error.message : "查询启动失败");
