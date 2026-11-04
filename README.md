@@ -49,7 +49,7 @@ npm test
 npx wrangler deploy
 ```
 
-The Cloudflare Worker is configured in [wrangler.jsonc](wrangler.jsonc). It uses the existing private R2 bucket. Changing GitHub source alone currently does not deploy the Worker: Cloudflare Workers Builds must have its GitHub integration and build token configured. The scheduled XDB update itself runs independently via Cloudflare Cron Triggers.
+The Cloudflare Worker is configured in [wrangler.jsonc](wrangler.jsonc). It uses the existing private R2 bucket. Cloudflare Workers Builds is connected to the main branch and uses `npm run build` before `npx wrangler deploy`. The scheduled XDB update runs independently via Cloudflare Cron Triggers. GitHub Actions runs unit tests on commits and performs live API smoke checks; its scheduled workflow checks production weekly.
 
 Cloudflare's R2 range API is used for data access. This cuts cold-start memory consumption at the cost of multiple R2 Class B operations per query. Actual endpoint behavior must be tested from Quantumult X to verify the proxy routes the request through the selected node.
 
