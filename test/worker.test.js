@@ -160,143 +160,76 @@ test("failed deployment hook is retried on the next check", async()=>{
 });
 
 
-test("Quantumult X renders elegant country, city, ISP and node tag", async () => {
-  const {runInNewContext} = await import("node:vm");
-  const response = await worker.fetch(
-    new Request("https://example.com/qx.js"),
-    {IP_DB:{}}, {waitUntil(){}}
-  );
-  const script = await response.text();
-  let output;
-  runInNewContext(script, {
-    $response: {
-      statusCode: 200,
-      body: JSON.stringify({
-        status:"success", country:"日本", regionName:"东京都",
-        city:"东京", isp:"NTT Communications", query:"1.2.3.4",
-        countryCode:"JP"
-      })
-    },
-    $environment: {params:"日本 · Tokyo"},
-    $done(value){output=value;}
-  });
-  assert.equal(output.title,"🇯🇵 日本 · 东京");
-  assert.match(output.subtitle,/v2\.2/);
-  assert.match(output.subtitle,/NTT Communications/);
-  assert.equal(output.ip,"1.2.3.4");
-  assert.match(output.description,/日本 › 东京都 › 东京/);
-  assert.match(output.description,/数据源：ip2region/);
-  assert.ok(output.description.includes("\n"));
-  assert.ok(!output.description.includes("\\n"));
+test("original compact QX layout renders country, region, city and ISP", async () => {
+  const {runInNewContext}=await import("node:vm");
+  const res=await worker.fetch(new Request("https://example.com/qx.js"),{IP_DB:{}},{waitUntil(){}});
+  assert.equal(res.status,200);
+  assert.equal(res.headers.get("x-qx-script-version"),"classic");
+  assert.equal(res.headers.get("cache-control"),"no-store, max-age=0");
+  const script=await res.text();
+  let value;
+  runInNewContext(script,{$response:{statusCode:200,body:JSON.stringify({
+    country:"日本",regionName:"东京都",city:"东京",
+    isp:"NTT Communications",query:"1.2.3.4",countryCode:"JP"
+  })},$done(x){value=x;}});
+  assert.equal(value.title,"🇯🇵 日本");
+  assert.equal(value.subtitle,"东京都 · 东京 · NTT Communications");
+  assert.equal(value.ip,"1.2.3.4");
+  assert.match(value.description,/国家：日本/);
+  assert.match(value.description,/省份：东京都/);
+  assert.match(value.description,/运营商：NTT Communications/);
+  assert.match(value.description,/数据源：ip2region/);
+  assert.ok(value.description.includes("\n"));
 });
 
-test("Quantumult X handles IPv6, repeated locations and missing ISP", async () => {
-  const {runInNewContext} = await import("node:vm");
-  const script = await (await worker.fetch(
-    new Request("https://example.com/qx.js"), {IP_DB:{}}, {waitUntil(){}}
-  )).text();
-  let output;
-  runInNewContext(script, {
-    $response: {statusCode:200,body:JSON.stringify({
-      status:"success",country:"中国",regionName:"上海",city:"上海",
-      isp:"0",query:"2001:db8::1",countryCode:"CN"
-    })},
-    $done(value){output=value;}
-  });
-  assert.equal(output.title,"🇨🇳 中国 · 上海");
-  assert.equal(output.ip,"2001:db8::1");
-  assert.match(output.subtitle,/IPv6/);
-  assert.match(output.description,/运营商未知/);
-  assert.ok(!output.description.includes("上海  ›  上海"));
+test("compact QX layout de-duplicates identical region/city and handles IPv6", async () => {
+  const {runInNewContext}=await import("node:vm");
+  const script=await (await worker.fetch(new Request("https://example.com/qx.js"),
+    {IP_DB:{}},{waitUntil(){}})).text();
+  let value;
+  runInNewContext(script,{$response:{statusCode:"200",body:JSON.stringify({
+    country:"中国",regionName:"上海",city:"上海",isp:"0",
+    query:"2001:db8::1",countryCode:"CN"
+  })},$done(x){value=x;}});
+  assert.equal(value.title,"🇨🇳 中国");
+  assert.equal(value.subtitle,"上海");
+  assert.equal(value.ip,"2001:db8::1");
+  assert.match(value.description,/运营商：未知/);
 });
 
-test("Quantumult X returns graceful errors for bad HTTP, JSON or absent IP", async () => {
-  const {runInNewContext} = await import("node:vm");
-  const script = await (await worker.fetch(
-    new Request("https://example.com/qx.js"), {IP_DB:{}}, {waitUntil(){}}
-  )).text();
-  const cases = [
-    {statusCode:429,body:JSON.stringify({error:"Too many requests"})},
-    {statusCode:200,body:"not JSON"},
-    {statusCode:200,body:JSON.stringify({status:"success",country:"日本"})},
-    {statusCode:200,body:JSON.stringify({status:"error"})}
-  ];
-  for (const response of cases) {
-    let output;
-    runInNewContext(script, {
-      $response:response,
-      $done(value){output=value;}
-    });
-    assert.match(output.title,/GeoIP 查询异常/);
-    assert.equal(output.ip,"");
+test("compact QX layout always calls done on malformed, missing or error responses", async () => {
+  const {runInNewContext}=await import("node:vm");
+  const script=await (await worker.fetch(new Request("https://example.com/qx.js"),
+    {IP_DB:{}},{waitUntil(){}})).text();
+  for (const response of [
+    {statusCode:429,body:'{"error":"rate limited"}'},
+    {statusCode:200,body:"invalid JSON"},
+    {statusCode:200,body:'{"country":"Taiwan"}'},
+    {statusCode:503,body:""}
+  ]) {
+    let value;
+    runInNewContext(script,{$response:response,$done(x){value=x;}});
+    assert.equal(value.title,"GeoIP 查询失败");
+    assert.equal(value.ip,"");
   }
 });
 
-
-test("versioned Quantumult X endpoint bypasses caches and serves identical script", async()=>{
-  const env={IP_DB:{async get(){return null;}}};
-  const ctx={waitUntil(){}};
-  const old=await worker.fetch(new Request("https://example.com/qx.js"),env,ctx);
-  const fresh=await worker.fetch(new Request("https://example.com/qx-v2.js"),env,ctx);
-  assert.equal(old.status,200);
-  assert.equal(fresh.status,200);
-  assert.equal(old.headers.get("cache-control"),"no-store, max-age=0");
-  assert.equal(fresh.headers.get("cache-control"),"no-store, max-age=0");
-  assert.equal(fresh.headers.get("x-qx-script-version"),"2.2");
-  const a=await old.text(),b=await fresh.text();
-  assert.equal(a,b);
-  assert.match(b,/Quantumult X geo_location_checker/);
-  assert.match(b,/v2\.2/);
-  const health=await worker.fetch(new Request("https://example.com/health"),env,ctx);
-  assert.equal((await health.json()).scriptVersion,"2.2");
-});
-
-
-test("safe versioned QX script always emits a render even if HTTP status or data is invalid", async () => {
-  const {runInNewContext} = await import("node:vm");
-  const response=await worker.fetch(new Request("https://example.com/qx-v22.js"),{IP_DB:{}},{waitUntil(){}});
-  assert.equal(response.status,200);
-  assert.equal(response.headers.get("x-qx-script-version"),"2.2");
-  const js=await response.text();
-  assert.ok(!js.includes("(function ()"));
-  for(const payload of [
-    {statusCode:200,body:JSON.stringify({status:"success",country:"Taiwan",regionName:"Taiwan",city:"Taipei",isp:"CHUNGHWA TELECOM CO., LTD.",query:"203.0.113.18",countryCode:"TW"})},
-    {statusCode:200,body:JSON.stringify({status:"success",country:"日本",regionName:"东京都",city:"东京",isp:"NTT",query:"2001:db8::1",countryCode:"JP"})},
-    {statusCode:503,body:'{"error":"temporarily unavailable"}'},
-    {statusCode:200,body:"garbled"}
-  ]){
-    let result;
-    runInNewContext(js,{$response:payload,$done(x){result=x;}});
-    assert.ok(result,"$done must always be called");
-    assert.ok(result.title);
-    assert.ok(result.subtitle);
-    assert.ok(result.description);
-    if(payload.statusCode!==200||payload.body==="garbled")assert.match(result.title,/GeoIP 查询异常/);
+test("canonical script and legacy aliases serve the same compact script", async () => {
+  const env={IP_DB:{}},ctx={waitUntil(){}};
+  const paths=["/qx.js","/qx-v2.js","/qx-safe.js","/qx-v22.js","/qx-lite.js"];
+  const responses=await Promise.all(paths.map(p=>
+    worker.fetch(new Request("https://example.com"+p),env,ctx)
+  ));
+  const scripts=await Promise.all(responses.map(r=>r.text()));
+  for(let i=0;i<responses.length;i++){
+    assert.equal(responses[i].status,200);
+    assert.equal(responses[i].headers.get("x-qx-script-version"),"classic");
+    assert.equal(scripts[i],scripts[0]);
   }
+  const health=await worker.fetch(new Request("https://example.com/health"),
+    {IP_DB:{async get(){return null;}}},ctx);
+  assert.equal((await health.json()).scriptVersion,"classic");
 });
-
-test("separate QX diagnostic route produces a visibly different UI without relying on JSON success", async () => {
-  const {runInNewContext} = await import("node:vm");
-  const res = await worker.fetch(new Request("https://example.com/qx-check.js"), {IP_DB:{}}, {waitUntil(){}});
-  assert.equal(res.status, 200);
-  assert.match(res.headers.get("cache-control"), /no-store/);
-  assert.equal(res.headers.get("x-qx-script-version"), "3.0");
-  const script = await res.text();
-  let output;
-  runInNewContext(script, {
-    $response: {
-      statusCode: 200,
-      body: JSON.stringify({query:"1.2.3.4",country:"日本"})
-    },
-    $done(value){output=value;}
-  });
-  assert.match(output.title,/自定义 GeoIP 脚本已生效/);
-  assert.match(output.subtitle,/QX CHECK · v3\.0/);
-  assert.equal(output.ip,"1.2.3.4");
-  assert.match(output.description,/诊断脚本加载成功/);
-  assert.ok(output.description.includes("\n"));
-});
-
 
 test("batch indexed lookup uses at most three R2 reads on cold prefix and zero on warm repeat", async () => {
   const {lookup} = await import("../src/index.js");
@@ -355,42 +288,3 @@ test("large IPv4 prefix uses bounded slab search instead of record-by-record R2 
 });
 
 
-test("unique v2.2 script endpoint returns same compact renderer over HTTPS", async () => {
-  const env={IP_DB:{}},ctx={waitUntil(){}};
-  const urls=["https://example.com/qx.js","https://example.com/qx-v2.js","https://example.com/qx-safe.js","https://example.com/qx-v22.js"];
-  const versions=await Promise.all(urls.map(url=>worker.fetch(new Request(url),env,ctx)));
-  const scripts=await Promise.all(versions.map(res=>res.text()));
-  for(let i=0;i<versions.length;i++){
-    assert.equal(versions[i].status,200);
-    assert.equal(versions[i].headers.get("x-qx-script-version"),"2.2");
-    assert.equal(versions[i].headers.get("cache-control"),"no-store, max-age=0");
-    assert.equal(scripts[i],scripts[0]);
-  }
-  assert.match(scripts[0],/Uses the same proven top-level execution pattern/);
-});
-
-
-// Production QX renderer uses exactly the same top-level execution model as
-// the proven qx-check.js and always emits a visible version marker.
-test("minimal QX v4.0 script renders real fields and never silently exits", async () => {
-  const {runInNewContext}=await import("node:vm");
-  const response=await worker.fetch(new Request("https://example.com/qx-lite.js"),{IP_DB:{}},{waitUntil(){}});
-  assert.equal(response.status,200);
-  assert.equal(response.headers.get("x-qx-script-version"),"4.0");
-  assert.match(response.headers.get("cache-control"),/no-store/);
-  const script=await response.text();
-  assert.match(script,/\$done/);
-  for(const payload of [
-    {statusCode:200,body:JSON.stringify({query:"1.2.3.4",country:"Taiwan",regionName:"Taiwan",city:"Taipei",isp:"CHUNGHWA TELECOM CO., LTD."})},
-    {statusCode:200,body:JSON.stringify({query:"2001:db8::1",country:"日本",city:"东京",isp:"NTT"})},
-    {statusCode:503,body:"invalid"}
-  ]) {
-    let result;
-    runInNewContext(script,{$response:payload,$done(x){result=x;}});
-    assert.ok(result,"script must always call $done");
-    assert.ok(result.title.startsWith("✅ "));
-    assert.match(result.subtitle,/ip2region v4\.0/);
-    assert.match(result.description,/ip2region v4\.0/);
-    assert.ok("ip" in result);
-  }
-});
