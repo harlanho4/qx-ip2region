@@ -1,102 +1,59 @@
-# Quantumult X ip2region GeoIP
+# qx-ip2region
 
-A lightweight IPv4/IPv6 geolocation checker powered by the [ip2region](https://github.com/lionsoul2014/ip2region) XDB databases, Cloudflare Workers and private R2 object storage.
+基于 [ip2region](https://github.com/lionsoul2014/ip2region) XDB、Cloudflare Workers 和私有 R2 存储的 Quantumult X IP 归属地查询服务，支持 IPv4 和 IPv6。
 
-## Quantumult X
+## Quantumult X 配置
 
-Use HTTPS for both URLs. The worker JSON endpoint has been verified to
-work over HTTPS in Quantumult X; the original display script was the
-compatibility issue. The v4.0 minimal script uses the same top-level `$done` pattern
-as the working diagnostic script.
+在当前配置文件的 `[general]` 部分设置：
 
 ```ini
-geo_location_checker = https://qx-ip2region.harlanho4.workers.dev/geo, https://qx-ip2region.harlanho4.workers.dev/qx-lite.js
+geo_location_checker = https://qx-ip2region.harlanho4.workers.dev/geo, https://qx-ip2region.harlanho4.workers.dev/qx.js
 ```
 
-### Troubleshooting
+保存并重新载入配置即可使用。服务查询 Quantumult X 当前所用网络出口的公网 IP。
 
-The diagnostic script is available for distinguishing query transport
-from JavaScript rendering:
+## 显示效果
 
-```ini
-geo_location_checker = https://qx-ip2region.harlanho4.workers.dev/geo, https://qx-ip2region.harlanho4.workers.dev/qx-check.js
-```
+保持 Quantumult X 原生的简洁归属地展示：
 
-A successful diagnostic displays "自定义 GeoIP 脚本已生效" with
-"QX CHECK · v3.0 · HTTP 200". The production `qx-lite.js`
-script is a compact, top-level JavaScript renderer that always calls `$done`
-and displays the country, locality, ISP, IP family and data provenance.
-The legacy `qx-v2.js` and `qx-v22.js` routes remain available
-for compatibility. Using the fresh `qx-lite.js` address avoids cached
-copies of older script bodies.
+- **标题**：国旗与国家或地区，例如 `🇹🇼 Taiwan`。
+- **副标题**：省份、城市、运营商；重复的省份和城市只显示一次，例如 `Taipei · CHUNGHWA TELECOM CO., LTD.`。
+- **IP**：当前查询的公网 IPv4 或 IPv6 地址。
+- **详细信息**：国家、省份、城市、运营商及数据源 `ip2region`。
 
-## Refreshing Quantumult X
+实际地区和运营商由 XDB 数据库决定，定位精度取决于数据源覆盖情况。
 
-After updating your profile, use the versioned `/qx-lite.js` path shown above and apply/reload the active Quantumult X configuration. The former `/qx.js` path is preserved for compatibility but older scripts may remain cached locally by the client. The server sends `Cache-Control: no-store` for both endpoints. Actual presentation is limited to Quantumult X's native title/subtitle/IP/description fields.
+## API
 
-## Live endpoints
+| 路径 | 说明 |
+| --- | --- |
+| [`/geo`](https://qx-ip2region.harlanho4.workers.dev/geo) | 当前请求出口 IP 的归属地 JSON |
+| [`/qx.js`](https://qx-ip2region.harlanho4.workers.dev/qx.js) | Quantumult X 展示脚本 |
+| [`/health`](https://qx-ip2region.harlanho4.workers.dev/health) | 数据库状态、脚本版本和当前数据哈希 |
 
-- [GeoIP query](https://qx-ip2region.harlanho4.workers.dev/geo): returns ip-api-compatible fields for the **requester's exit IP**, including country, province, city, ISP and country code.
-- [Quantumult X display script, v4.0](https://qx-ip2region.harlanho4.workers.dev/qx-lite.js) (versioned URL to bypass client script caches).
-- [Health](https://qx-ip2region.harlanho4.workers.dev/health): active XDB version hashes and display script version.
+`/geo` 返回 `query`、`country`、`regionName`、`city`、`isp`、`countryCode` 等字段，查询结果与请求出口 IP 对应。数据源没有单独的机房组织字段，因此 `org` 为空字符串。
 
-## Architecture
+## 实现与自动化
 
-- Cloudflare Worker name: `qx-ip2region`
-- Private Cloudflare R2 bucket: `qx-ip2region-xdb`
-- Scheduled automatic database synchronization: `0 3 * * *` UTC (11:00 Beijing time).
-- Automated deployment fallback: every 10 minutes (`*/10 * * * *` UTC), Cron polls the GitHub main-branch commit SHA and starts a Cloudflare Workers Build through a private Deploy Hook only when it changes.
-- Data source: [lionsoul2014/ip2region](https://github.com/lionsoul2014/ip2region), Apache-2.0.
-- Worker queries the local R2 objects with HTTP-style byte ranges, caching only the 512-KiB vector index for each XDB version.
-- Upstream updates compare GitHub blob hashes, download binaries pinned to the same commit, validate file sizes/XDB headers and sample lookups, and switch a single active R2 manifest only after both versions are ready.
-- Previous XDB objects and historical manifests are retained for rollback.
-- The API refuses arbitrary IP-query parameters to prevent misuse and uses the Cloudflare client IP header to identify the Quantumult X proxy's exit IP.
+- **运行环境**：Cloudflare Worker `qx-ip2region`；R2 私有存储桶 `qx-ip2region-xdb`。
+- **快速查询**：按 XDB 索引范围读取数据，按 Worker 实例缓存向量索引、常用段和最近查询结果；数据库版本切换后自动使用新索引。
+- **自动更新**：每天 UTC 03:00（北京时间 11:00）检查上游 IPv4/IPv6 XDB，校验文件格式和示例查询后切换版本，保留旧版本便于回滚。
+- **代码发布**：Cloudflare Workers Builds 从 `main` 构建部署；Worker 每 10 分钟检查仓库提交变更并通过私有 Deploy Hook 触发构建。
+- **测试**：GitHub Actions 对推送和 PR 执行单元测试，每日 UTC 03:30 验证线上健康状态、GeoIP 接口及 `/qx.js`。
+- **访问控制**：R2 保持私有，`/geo` 使用 Cloudflare 限流（每出口 IP 每分钟 60 次，按边缘节点近似计数），不接受指定其他 IP 的查询参数。
 
-## Public repository security
+## 部署
 
-This repository contains only source files and configuration identifiers. Keep
-Cloudflare credentials, local `.env` files and `.dev.vars` files outside of Git.
-The XDB databases remain in a private R2 bucket; public R2 access is disabled.
-The `/geo` endpoint enforces a 60-request-per-minute limit per client egress
-IP and Cloudflare location after deployment of the current Wrangler config.
-See [SECURITY.md](SECURITY.md) for the threat model and disclosure process.
-
-To enable Cloudflare Workers Builds, connect only this repository to the
-existing `qx-ip2region` Worker, use `main` as the production branch,
-set the build command to `npm run build` and deployment command to
-`npx wrangler deploy`, and disable branch/PR previews until a separate
-test-only R2 bucket is configured. GitHub actions or untrusted preview code
-must never receive production Cloudflare credentials or production R2 bindings.
-
-## Development and deployment
+项目使用 [`wrangler.jsonc`](wrangler.jsonc) 声明 Worker、R2 绑定、限流和 Cron。首次部署需要有权访问对应 Cloudflare 账户和 R2 存储桶。
 
 ```bash
 npm install
-npm test
+npm run build
 npx wrangler deploy
 ```
 
-The Cloudflare Worker is configured in [wrangler.jsonc](wrangler.jsonc). It uses the existing private R2 bucket. Cloudflare Workers Builds is connected to the main branch and uses `npm run build` before `npx wrangler deploy`. The production Worker also polls the GitHub source every 10 minutes as a fallback when GitHub push webhooks are delayed or unavailable. The Cloudflare Deploy Hook UUID is stored only in a private R2 object, `internal/deploy-hook-uuid`, and never committed to GitHub. The fallback records the last accepted source SHA in `internal/deploy-last.json`. It retries hook requests on a subsequent check if triggering fails. The scheduled XDB update runs independently via Cloudflare Cron Triggers. GitHub Actions runs unit tests on commits and performs live API smoke checks; its scheduled workflow checks production weekly.
+敏感凭据保存在 Cloudflare 的托管配置或私有 R2 中，Git 仓库只包含源码和公开配置。更多信息见 [SECURITY.md](SECURITY.md)。
 
-Cloudflare's R2 range API is used for data access. This cuts cold-start memory consumption at the cost of multiple R2 Class B operations per query. Actual endpoint behavior must be tested from Quantumult X to verify the proxy routes the request through the selected node.
+## 许可
 
-## API output
-
-```json
-{
-  "status": "success",
-  "query": "1.2.3.4",
-  "country": "Australia",
-  "regionName": "Queensland",
-  "city": "Brisbane",
-  "isp": "",
-  "org": "",
-  "countryCode": "AU"
-}
-```
-
-The `org` field is deliberately empty; ip2region's public dataset does not include a dedicated data-center organization attribute.
-
-## Attribution
-
-ip2region XDB databases © ip2region contributors, Apache-2.0 OR MIT. This repository uses the upstream data and documents the original project URL.
+本项目代码采用 [MIT](LICENSE) 许可；ip2region XDB 数据来自 [lionsoul2014/ip2region](https://github.com/lionsoul2014/ip2region)，其许可为 Apache-2.0 OR MIT。详见 [NOTICE](NOTICE)。
