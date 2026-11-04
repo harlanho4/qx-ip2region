@@ -34,3 +34,28 @@ test("response handling, health and Quantumult X script", async () => {
   assert.equal(health.status, 503);
   assert.equal((await health.json()).initialized, false);
 });
+
+test("GeoIP fails closed when rate-limit binding is unavailable", async () => {
+  const env = {IP_DB: {async get(){throw Error("R2 access is unexpected");}}};
+  const request = new Request("https://example.com/geo", {
+    headers: {"CF-Connecting-IP":"1.2.3.4"}
+  });
+  const response = await worker.fetch(request,env,{waitUntil(){}});
+  assert.equal(response.status,503);
+  assert.equal((await response.json()).error,"Rate limiter unavailable");
+});
+
+test("GeoIP returns 429 before accessing R2 if rate limit exceeded", async () => {
+  let rateKey = "";
+  const env = {
+    IP_DB: {async get(){throw Error("R2 access is unexpected");}},
+    GEO_RATE_LIMIT: {async limit({key}){rateKey=key;return {success:false};}}
+  };
+  const request = new Request("https://example.com/geo", {
+    headers: {"CF-Connecting-IP":"1.2.3.4"}
+  });
+  const response = await worker.fetch(request,env,{waitUntil(){}});
+  assert.equal(response.status,429);
+  assert.equal((await response.json()).error,"Too many requests");
+  assert.equal(rateKey,"1.2.3.4");
+});
