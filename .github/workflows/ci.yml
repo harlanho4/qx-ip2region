@@ -62,6 +62,20 @@ jobs:
           grep -qi '^cache-control: no-store' /tmp/qx-headers
           node --check /tmp/qx-script.js
 
+          # Validate that the currently deployed Worker serves the QX task script.
+          task_ready=0
+          for attempt in $(seq 1 18); do
+            if curl -fsS --max-time 10 "$host/task.js" -o /tmp/qx-task.js \
+              && grep -Fq '$task.fetch(geoRequest)' /tmp/qx-task.js; then
+              task_ready=1
+              break
+            fi
+            sleep 10
+          done
+          test "$task_ready" -eq 1
+          node --check /tmp/qx-task.js
+          grep -Fq 'geoRequest.opts = { policy: geoNode }' /tmp/qx-task.js
+
           node <<'NODE'
           const fs = require("node:fs");
           const vm = require("node:vm");
