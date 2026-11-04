@@ -188,6 +188,12 @@ export default {
     }
     if(u.pathname!=="/geo") return json({error:"Not found"},404);
     if(request.method!=="GET") return json({error:"Method not allowed"},405);
+    // Protect R2 Class B operations against automated traffic.
+    // The limiter is per egress IP and per Cloudflare location, not a global quota.
+    if (!env.GEO_RATE_LIMIT) return json({error:"Rate limiter unavailable"},503);
+    const rateKey=request.headers.get("CF-Connecting-IP") || "unknown";
+    const decision=await env.GEO_RATE_LIMIT.limit({key:rateKey});
+    if(!decision.success) return json({error:"Too many requests"},429);
     let ip=request.headers.get("CF-Connecting-IP")||"";
     if(blocked.has(ip)) return json({error:"Invalid address"},400);
     const parsed=parseIP(ip);
