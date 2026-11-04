@@ -5,8 +5,36 @@ A lightweight IPv4/IPv6 geolocation checker powered by the [ip2region](https://g
 ## Quantumult X
 
 ```ini
-geo_location_checker = https://qx-ip2region.haonan-h6709.workers.dev/geo, https://qx-ip2region.haonan-h6709.workers.dev/qx-v2.js
+geo_location_checker = http://qx-ip2region.haonan-h6709.workers.dev/geo, https://qx-ip2region.haonan-h6709.workers.dev/qx-v2.js
 ```
+
+## Quantumult X transport compatibility
+
+Quantumult X has a reported HTTPS incompatibility for the **first URL** in
+`geo_location_checker` (see
+[crossutility/Quantumult-X#254](https://github.com/crossutility/Quantumult-X/issues/254)).
+The Worker responds with HTTP 200 over both HTTP/1.1 (plain HTTP) and HTTPS
+(HTTP/2); the first URL uses plain HTTP for Quantumult X compatibility.
+The second URL is a JavaScript download and remains HTTPS.
+
+**Privacy note:** The plain HTTP GeoIP response contains the requester's
+public exit IP and approximate geolocation. Network intermediaries may read
+or modify HTTP traffic. Prefer the HTTPS endpoint in clients that support it,
+and switch Quantumult X to the HTTPS endpoint once the incompatibility is fixed.
+The Worker never accepts arbitrary IP query parameters and never requires credentials.
+
+### Diagnostic configuration
+
+If Quantumult X still shows its previous built-in country/ISP result, first
+verify the query transport with the distinct diagnostic script:
+
+```ini
+geo_location_checker = http://qx-ip2region.haonan-h6709.workers.dev/geo, https://qx-ip2region.haonan-h6709.workers.dev/qx-check.js
+```
+
+The diagnostic result visibly displays "自定义 GeoIP 脚本已生效" and
+"QX CHECK · v3.0 · HTTP 200". It confirms that the first URL completed and
+the script executed. Restore the `qx-v2.js` production script afterwards.
 
 ## Refreshing Quantumult X
 
