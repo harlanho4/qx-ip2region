@@ -250,3 +250,26 @@ test("versioned Quantumult X endpoint bypasses caches and serves identical scrip
   const health=await worker.fetch(new Request("https://example.com/health"),env,ctx);
   assert.equal((await health.json()).scriptVersion,"2.1");
 });
+
+
+test("separate QX diagnostic route produces a visibly different UI without relying on JSON success", async () => {
+  const {runInNewContext} = await import("node:vm");
+  const res = await worker.fetch(new Request("https://example.com/qx-check.js"), {IP_DB:{}}, {waitUntil(){}});
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("cache-control"), /no-store/);
+  assert.equal(res.headers.get("x-qx-script-version"), "3.0");
+  const script = await res.text();
+  let output;
+  runInNewContext(script, {
+    $response: {
+      statusCode: 200,
+      body: JSON.stringify({query:"1.2.3.4",country:"日本"})
+    },
+    $done(value){output=value;}
+  });
+  assert.match(output.title,/自定义 GeoIP 脚本已生效/);
+  assert.match(output.subtitle,/QX CHECK · v3\.0/);
+  assert.equal(output.ip,"1.2.3.4");
+  assert.match(output.description,/诊断脚本加载成功/);
+  assert.ok(output.description.includes("\n"));
+});
