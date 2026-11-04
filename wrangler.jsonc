@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "qx-ip2region",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-04",
+  "workers_dev": true,
+  "r2_buckets": [
+    { "binding": "IP_DB", "bucket_name": "qx-ip2region-xdb" }
+  ],
+  "triggers": { "crons": ["0 3 * * *"] },
+  "observability": { "enabled": true }
+}
