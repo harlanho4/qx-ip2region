@@ -158,3 +158,76 @@ test("failed deployment hook is retried on the next check", async()=>{
     assert.equal(state.has("internal/deploy-last.json"),false);
   }finally{globalThis.fetch=originalFetch;}
 });
+
+
+test("Quantumult X renders elegant country, city, ISP and node tag", async () => {
+  const {runInNewContext} = await import("node:vm");
+  const response = await worker.fetch(
+    new Request("https://example.com/qx.js"),
+    {IP_DB:{}}, {waitUntil(){}}
+  );
+  const script = await response.text();
+  let output;
+  runInNewContext(script, {
+    $response: {
+      statusCode: 200,
+      body: JSON.stringify({
+        status:"success", country:"日本", regionName:"东京都",
+        city:"东京", isp:"NTT Communications", query:"1.2.3.4",
+        countryCode:"JP"
+      })
+    },
+    $environment: {params:"日本 · Tokyo"},
+    $done(value){output=value;}
+  });
+  assert.equal(output.title,"🇯🇵  日本 · 东京");
+  assert.match(output.subtitle,/日本 · Tokyo/);
+  assert.match(output.subtitle,/NTT Communications/);
+  assert.equal(output.ip,"1.2.3.4");
+  assert.match(output.description,/日本  ›  东京都  ›  东京/);
+  assert.match(output.description,/数据源  ·  ip2region/);
+  assert.ok(output.description.includes("\n"));
+  assert.ok(!output.description.includes("\\n"));
+});
+
+test("Quantumult X handles IPv6, repeated locations and missing ISP", async () => {
+  const {runInNewContext} = await import("node:vm");
+  const script = await (await worker.fetch(
+    new Request("https://example.com/qx.js"), {IP_DB:{}}, {waitUntil(){}}
+  )).text();
+  let output;
+  runInNewContext(script, {
+    $response: {statusCode:200,body:JSON.stringify({
+      status:"success",country:"中国",regionName:"上海",city:"上海",
+      isp:"0",query:"2001:db8::1",countryCode:"CN"
+    })},
+    $done(value){output=value;}
+  });
+  assert.equal(output.title,"🇨🇳  中国 · 上海");
+  assert.equal(output.ip,"2001:db8::1");
+  assert.match(output.subtitle,/IPv6/);
+  assert.match(output.description,/运营商信息暂缺/);
+  assert.ok(!output.description.includes("上海  ›  上海"));
+});
+
+test("Quantumult X returns graceful errors for bad HTTP, JSON or absent IP", async () => {
+  const {runInNewContext} = await import("node:vm");
+  const script = await (await worker.fetch(
+    new Request("https://example.com/qx.js"), {IP_DB:{}}, {waitUntil(){}}
+  )).text();
+  const cases = [
+    {statusCode:429,body:JSON.stringify({error:"Too many requests"})},
+    {statusCode:200,body:"not JSON"},
+    {statusCode:200,body:JSON.stringify({status:"success",country:"日本"})},
+    {statusCode:200,body:JSON.stringify({status:"error"})}
+  ];
+  for (const response of cases) {
+    let output;
+    runInNewContext(script, {
+      $response:response,
+      $done(value){output=value;}
+    });
+    assert.match(output.title,/归属地查询失败/);
+    assert.equal(output.ip,"");
+  }
+});
