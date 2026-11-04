@@ -163,6 +163,12 @@ export async function sync(env){
     changed=true;
   }
   if(!next.v4 || !next.v6) throw new Error("Incomplete XDB release");
+  // Daily integrity probe runs even when upstream XDB hashes are unchanged.
+  for (const version of [4, 6]) {
+    const address = version===4 ? ipv4("1.2.3.4") : ipv6("2604:a840:3::a04d");
+    const sample = await lookup(env, version, address, next);
+    if (!sample || sample.split("|").length < 5) throw new Error("Daily XDB lookup health check failed");
+  }
   if(changed){
     if(old) await env.IP_DB.put("history/"+Date.now()+".json",JSON.stringify(old));
     await env.IP_DB.put("manifest.json",JSON.stringify(next),{httpMetadata:{contentType:"application/json"}});
