@@ -48,3 +48,13 @@ jobs:
           grep -qi '^x-qx-script-version: 3.0' /tmp/qx-check-headers
           grep -Fq '自定义 GeoIP 脚本已生效' /tmp/qx-check.js
           node --check /tmp/qx-check.js
+          echo '=== HTTPS and HTTP GeoIP transport diagnostic ==='
+          for scheme in https http; do
+            curl --silent --show-error --max-time 12 --output /tmp/geo-${scheme}.json \
+              --dump-header /tmp/geo-${scheme}.headers \
+              --write-out "scheme=${scheme} status=%{http_code} redirect=%{redirect_url} content_type=%{content_type}\n" \
+              "${scheme}://qx-ip2region.haonan-h6709.workers.dev/geo" || true
+            grep -iE '^(HTTP/|location:|content-type:|server:)' /tmp/geo-${scheme}.headers || true
+            head -c 200 /tmp/geo-${scheme}.json || true
+            echo
+          done
