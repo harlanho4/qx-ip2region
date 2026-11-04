@@ -22,7 +22,7 @@ jobs:
       - run: npm run build
   smoke:
     needs: unit
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Check live GeoIP endpoints
@@ -30,6 +30,6 @@ jobs:
         run: |
           set -euo pipefail
           host=https://qx-ip2region.haonan-h6709.workers.dev
-          curl -fsS --retry 3 "$host/health" | jq -e '.initialized == true and .ok == true and (.versions.v4|length) == 40 and (.versions.v6|length) == 40'
-          curl -fsS --retry 3 "$host/geo" | jq -e '.status == "success" and (.query|length) > 0 and (.country|length) > 0'
-          curl -fsS --retry 3 "$host/qx.js" | grep -Fq '$done'
+          curl -fsS --retry 3 --retry-delay 3 "$host/health" | jq -e '.initialized == true and .ok == true and (.versions.v4|length) == 40 and (.versions.v6|length) == 40'
+          curl -fsS --retry 3 --retry-delay 3 "$host/geo" | jq -e '.status == "success" and (.query|length) > 0 and (.country|length) > 0'
+          curl -fsS --retry 3 --retry-delay 3 "$host/qx.js" | grep -Fq '$done'
