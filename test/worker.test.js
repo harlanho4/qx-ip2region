@@ -180,11 +180,11 @@ test("Quantumult X renders elegant country, city, ISP and node tag", async () =>
     $environment: {params:"日本 · Tokyo"},
     $done(value){output=value;}
   });
-  assert.equal(output.title,"🇯🇵  日本 · 东京");
-  assert.match(output.subtitle,/日本 · Tokyo/);
+  assert.equal(output.title,"🇯🇵 日本 · 东京");
+  assert.match(output.subtitle,/v2\.2/);
   assert.match(output.subtitle,/NTT Communications/);
   assert.equal(output.ip,"1.2.3.4");
-  assert.match(output.description,/日本  ›  东京都  ›  东京/);
+  assert.match(output.description,/日本 › 东京都 › 东京/);
   assert.match(output.description,/数据源  ·  ip2region/);
   assert.ok(output.description.includes("\n"));
   assert.ok(!output.description.includes("\\n"));
@@ -203,7 +203,7 @@ test("Quantumult X handles IPv6, repeated locations and missing ISP", async () =
     })},
     $done(value){output=value;}
   });
-  assert.equal(output.title,"🇨🇳  中国 · 上海");
+  assert.equal(output.title,"🇨🇳 中国 · 上海");
   assert.equal(output.ip,"2001:db8::1");
   assert.match(output.subtitle,/IPv6/);
   assert.match(output.description,/运营商信息暂缺/);
@@ -227,7 +227,7 @@ test("Quantumult X returns graceful errors for bad HTTP, JSON or absent IP", asy
       $response:response,
       $done(value){output=value;}
     });
-    assert.match(output.title,/归属地查询失败/);
+    assert.match(output.title,/GeoIP 查询异常/);
     assert.equal(output.ip,"");
   }
 });
@@ -242,15 +242,38 @@ test("versioned Quantumult X endpoint bypasses caches and serves identical scrip
   assert.equal(fresh.status,200);
   assert.equal(old.headers.get("cache-control"),"no-store, max-age=0");
   assert.equal(fresh.headers.get("cache-control"),"no-store, max-age=0");
-  assert.equal(fresh.headers.get("x-qx-script-version"),"2.1");
+  assert.equal(fresh.headers.get("x-qx-script-version"),"2.2");
   const a=await old.text(),b=await fresh.text();
   assert.equal(a,b);
   assert.match(b,/Quantumult X GeoIP/);
-  assert.match(b,/v2\.1/);
+  assert.match(b,/v2\.2/);
   const health=await worker.fetch(new Request("https://example.com/health"),env,ctx);
-  assert.equal((await health.json()).scriptVersion,"2.1");
+  assert.equal((await health.json()).scriptVersion,"2.2");
 });
 
+
+test("safe versioned QX script always emits a render even if HTTP status or data is invalid", async () => {
+  const {runInNewContext} = await import("node:vm");
+  const response=await worker.fetch(new Request("https://example.com/qx-safe.js"),{IP_DB:{}},{waitUntil(){}});
+  assert.equal(response.status,200);
+  assert.equal(response.headers.get("x-qx-script-version"),"2.2");
+  const js=await response.text();
+  assert.ok(!js.includes("(function ()"));
+  for(const payload of [
+    {statusCode:200,body:JSON.stringify({status:"success",country:"Taiwan",regionName:"Taiwan",city:"Taipei",isp:"CHUNGHWA TELECOM CO., LTD.",query:"203.0.113.18",countryCode:"TW"})},
+    {statusCode:200,body:JSON.stringify({status:"success",country:"日本",regionName:"东京都",city:"东京",isp:"NTT",query:"2001:db8::1",countryCode:"JP"})},
+    {statusCode:503,body:'{"error":"temporarily unavailable"}'},
+    {statusCode:200,body:"garbled"}
+  ]){
+    let result;
+    runInNewContext(js,{$response:payload,$done(x){result=x;}});
+    assert.ok(result,"$done must always be called");
+    assert.ok(result.title);
+    assert.ok(result.subtitle);
+    assert.ok(result.description);
+    if(payload.statusCode!==200||payload.body==="garbled")assert.match(result.title,/GeoIP 查询异常/);
+  }
+});
 
 test("separate QX diagnostic route produces a visibly different UI without relying on JSON success", async () => {
   const {runInNewContext} = await import("node:vm");
