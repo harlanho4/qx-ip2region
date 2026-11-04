@@ -19,6 +19,7 @@ geo_location_checker = https://qx-ip2region.haonan-h6709.workers.dev/geo, https:
 - Cloudflare Worker name: `qx-ip2region`
 - Private Cloudflare R2 bucket: `qx-ip2region-xdb`
 - Scheduled automatic database synchronization: `0 3 * * *` UTC (11:00 Beijing time).
+- Automated deployment fallback: every 10 minutes (`*/10 * * * *` UTC), Cron polls the GitHub main-branch commit SHA and starts a Cloudflare Workers Build through a private Deploy Hook only when it changes.
 - Data source: [lionsoul2014/ip2region](https://github.com/lionsoul2014/ip2region), Apache-2.0.
 - Worker queries the local R2 objects with HTTP-style byte ranges, caching only the 512-KiB vector index for each XDB version.
 - Upstream updates compare GitHub blob hashes, download binaries pinned to the same commit, validate file sizes/XDB headers and sample lookups, and switch a single active R2 manifest only after both versions are ready.
@@ -49,7 +50,7 @@ npm test
 npx wrangler deploy
 ```
 
-The Cloudflare Worker is configured in [wrangler.jsonc](wrangler.jsonc). It uses the existing private R2 bucket. Cloudflare Workers Builds is connected to the main branch and uses `npm run build` before `npx wrangler deploy`. The scheduled XDB update runs independently via Cloudflare Cron Triggers. GitHub Actions runs unit tests on commits and performs live API smoke checks; its scheduled workflow checks production weekly.
+The Cloudflare Worker is configured in [wrangler.jsonc](wrangler.jsonc). It uses the existing private R2 bucket. Cloudflare Workers Builds is connected to the main branch and uses `npm run build` before `npx wrangler deploy`. The production Worker also polls the GitHub source every 10 minutes as a fallback when GitHub push webhooks are delayed or unavailable. The Cloudflare Deploy Hook UUID is stored only in a private R2 object, `internal/deploy-hook-uuid`, and never committed to GitHub. The fallback records the last accepted source SHA in `internal/deploy-last.json`. It retries hook requests on a subsequent check if triggering fails. The scheduled XDB update runs independently via Cloudflare Cron Triggers. GitHub Actions runs unit tests on commits and performs live API smoke checks; its scheduled workflow checks production weekly.
 
 Cloudflare's R2 range API is used for data access. This cuts cold-start memory consumption at the cost of multiple R2 Class B operations per query. Actual endpoint behavior must be tested from Quantumult X to verify the proxy routes the request through the selected node.
 
