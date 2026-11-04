@@ -80,6 +80,35 @@ jobs:
           grep -qi '^x-qx-script-version: 3.0' /tmp/qx-check-headers
           grep -Fq '自定义 GeoIP 脚本已生效' /tmp/qx-check.js
           node --check /tmp/qx-check.js
+
+          # Confirm the actual Cloudflare deployment serves the minimal QX script.
+          lite_ready=0
+          for n in $(seq 1 24); do
+            if curl -fsS --max-time 12 -D /tmp/qx-lite-headers \
+              "$host/qx-lite.js" -o /tmp/qx-lite.js \
+              && grep -qi '^x-qx-script-version: 4.0' /tmp/qx-lite-headers; then
+              lite_ready=1
+              break
+            fi
+            sleep 10
+          done
+          test "$lite_ready" -eq 1
+          node --check /tmp/qx-lite.js
+          curl -fsS --max-time 15 "$host/geo" -o /tmp/qx-lite-data.json
+          node <<'NODE'
+          const vm=require("node:vm"),fs=require("node:fs");
+          const script=fs.readFileSync("/tmp/qx-lite.js","utf8");
+          const body=fs.readFileSync("/tmp/qx-lite-data.json","utf8");
+          let result;
+          vm.runInNewContext(script,{
+            $response:{statusCode:200,body},
+            $done(value){result=value;}
+          },{timeout:2000});
+          if(!result?.title?.startsWith("✅ ") || !result?.subtitle?.includes("v4.0") ||
+             !result?.ip || !result?.description)throw Error("Minimal QX real-data display failed");
+          console.log("Minimal Quantumult X script with live HTTPS GeoIP response: PASS");
+          NODE
+
           # HTTPS query has been verified in Quantumult X and is the production path.
           curl -fsS --max-time 15 "$host/geo" \
             | jq -e '.status == "success" and (.query | length) > 0 and (.country | length) > 0'
