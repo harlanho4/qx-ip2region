@@ -297,7 +297,7 @@ export default {
   async fetch(request,env,ctx) {
     const u=new URL(request.url);
     if(u.pathname==="/qx-check.js") return new Response(qxDiagnosticJs,{headers:{"content-type":"application/javascript; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-qx-script-version":QX_DIAGNOSTIC_VERSION}});
-    if(u.pathname==="/qx.js" || u.pathname==="/qx-v2.js" || u.pathname==="/qx-safe.js") return new Response(qxJs,{headers:{"content-type":"application/javascript; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-qx-script-version":QX_SCRIPT_VERSION}});
+    if(u.pathname==="/qx.js" || u.pathname==="/qx-v2.js" || u.pathname==="/qx-safe.js" || u.pathname==="/qx-v22.js") return new Response(qxJs,{headers:{"content-type":"application/javascript; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-qx-script-version":QX_SCRIPT_VERSION}});
     if(u.pathname==="/health"){
       const m=await manifest(env);
       return json({ok:!!m,initialized:!!m,updatedAt:m?.updatedAt||null,scriptVersion:QX_SCRIPT_VERSION,versions:m?{v4:m.v4.sha,v6:m.v6.sha}:null},m?200:503);
