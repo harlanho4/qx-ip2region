@@ -37,7 +37,7 @@ After updating your profile, use the versioned `/qx-lite.js` path shown above an
 ## Live endpoints
 
 - [GeoIP query](https://qx-ip2region.harlanho4.workers.dev/geo): returns ip-api-compatible fields for the **requester's exit IP**, including country, province, city, ISP and country code.
-- [Quantumult X display script, v4.0](https://qx-ip2region.harlanho4.workers.dev/qx-v22.js) (versioned URL to bypass client script caches).
+- [Quantumult X display script, v4.0](https://qx-ip2region.harlanho4.workers.dev/qx-lite.js) (versioned URL to bypass client script caches).
 - [Health](https://qx-ip2region.harlanho4.workers.dev/health): active XDB version hashes and display script version.
 
 ## Architecture
