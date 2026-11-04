@@ -254,7 +254,7 @@ test("versioned Quantumult X endpoint bypasses caches and serves identical scrip
 
 test("safe versioned QX script always emits a render even if HTTP status or data is invalid", async () => {
   const {runInNewContext} = await import("node:vm");
-  const response=await worker.fetch(new Request("https://example.com/qx-safe.js"),{IP_DB:{}},{waitUntil(){}});
+  const response=await worker.fetch(new Request("https://example.com/qx-v22.js"),{IP_DB:{}},{waitUntil(){}});
   assert.equal(response.status,200);
   assert.equal(response.headers.get("x-qx-script-version"),"2.2");
   const js=await response.text();
@@ -352,4 +352,19 @@ test("large IPv4 prefix uses bounded slab search instead of record-by-record R2 
   assert.ok(reads<=6,"large segment should need only a few slab reads; observed "+reads);
   assert.equal(await lookup(env,4,query,{v4:{key}}),"Example|Region|City|Network|US");
   assert.ok(reads<=6,"repeat queries should reuse region cache");
+});
+
+
+test("unique v2.2 script endpoint returns same compact renderer over HTTPS", async () => {
+  const env={IP_DB:{}},ctx={waitUntil(){}};
+  const urls=["https://example.com/qx.js","https://example.com/qx-v2.js","https://example.com/qx-safe.js","https://example.com/qx-v22.js"];
+  const versions=await Promise.all(urls.map(url=>worker.fetch(new Request(url),env,ctx)));
+  const scripts=await Promise.all(versions.map(res=>res.text()));
+  for(let i=0;i<versions.length;i++){
+    assert.equal(versions[i].status,200);
+    assert.equal(versions[i].headers.get("x-qx-script-version"),"2.2");
+    assert.equal(versions[i].headers.get("cache-control"),"no-store, max-age=0");
+    assert.equal(scripts[i],scripts[0]);
+  }
+  assert.match(scripts[0],/Uses the same proven top-level execution pattern/);
 });
