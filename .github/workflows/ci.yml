@@ -1,0 +1,35 @@
+name: Test and verify deployed GeoIP
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --ignore-scripts
+      - run: npm run build
+  smoke:
+    needs: unit
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check live GeoIP endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          host=https://qx-ip2region.haonan-h6709.workers.dev
+          curl -fsS --retry 3 "$host/health" | jq -e '.initialized == true and .ok == true and (.versions.v4|length) == 40 and (.versions.v6|length) == 40'
+          curl -fsS --retry 3 "$host/geo" | jq -e '.status == "success" and (.query|length) > 0 and (.country|length) > 0'
+          curl -fsS --retry 3 "$host/qx.js" | grep -Fq '$done'
