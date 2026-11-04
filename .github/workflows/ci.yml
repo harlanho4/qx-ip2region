@@ -1,4 +1,5 @@
-name: Test and verify deployed GeoIP
+name: Test GeoIP service
+
 on:
   push:
     branches: [main]
@@ -13,6 +14,7 @@ permissions:
 jobs:
   unit:
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,95 +22,49 @@ jobs:
           node-version: "22"
       - run: npm install --ignore-scripts
       - run: npm run build
-  smoke:
+
+  production:
     needs: unit
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Check live GeoIP endpoints
+      - name: Verify the live GeoIP API and the canonical Quantumult X script
         shell: bash
         run: |
           set -euo pipefail
           host=https://qx-ip2region.harlanho4.workers.dev
-          curl -fsS --retry 3 --retry-delay 3 "$host/health" | jq -e '.initialized == true and .ok == true and (.versions.v4|length) == 40 and (.versions.v6|length) == 40'
-          curl -fsS --retry 3 --retry-delay 3 "$host/geo" | jq -e '.status == "success" and (.query|length) > 0 and (.country|length) > 0'
-          # Cloudflare Builds may deploy after the push-triggered GitHub smoke job starts.
-          # Wait until the expected script release is active before validating it.
-          ready=0
-          for attempt in $(seq 1 18); do
-            if curl -fsS --max-time 10 "$host/health" \
-              | jq -e '.scriptVersion == "2.2"' >/dev/null; then
-              ready=1
-              break
-            fi
-            sleep 10
-          done
-          test "$ready" -eq 1
-          # Assert the deployed version instead of only checking that a JS file exists.
-          curl -fsS --retry 3 --retry-delay 3 "$host/health" \
-            | jq -e '.scriptVersion == "2.2"'
-          curl -fsS --retry 3 --retry-delay 3 -D /tmp/qx-headers \
-            "$host/qx-v22.js" -o /tmp/qx-v22.js
-          grep -qi '^cache-control: no-store' /tmp/qx-headers
-          grep -qi '^x-qx-script-version: 2.2' /tmp/qx-headers
-          grep -Fq 'Quantumult X geo_location_checker' /tmp/qx-v22.js
-          grep -Fq 'v2.2' /tmp/qx-v22.js
-          grep -Fq '$done' /tmp/qx-v22.js
-          node --check /tmp/qx-v22.js
 
-          # Run the exact live script against the exact live HTTPS API response.
-          curl -fsS --retry 3 --retry-delay 3 "$host/geo" -o /tmp/geo-live.json
+          curl -fsS --retry 3 --retry-delay 2 "$host/health" -o /tmp/qx-health.json
+          jq -e '.ok == true and .initialized == true and
+            .scriptVersion == "classic" and
+            (.versions.v4 | length) == 40 and (.versions.v6 | length) == 40' /tmp/qx-health.json
+
+          curl -fsS --retry 3 --retry-delay 2 "$host/geo" \
+            -o /tmp/qx-geo.json \
+            -w 'GeoIP total seconds: %{time_total}\n'
+          jq -e '.status == "success" and (.query | length) > 0 and
+            (.country | length) > 0' /tmp/qx-geo.json
+
+          curl -fsS --retry 3 --retry-delay 2 -D /tmp/qx-headers \
+            "$host/qx.js" -o /tmp/qx-script.js
+          grep -qi '^x-qx-script-version: classic' /tmp/qx-headers
+          grep -qi '^cache-control: no-store' /tmp/qx-headers
+          node --check /tmp/qx-script.js
+
           node <<'NODE'
           const fs = require("node:fs");
           const vm = require("node:vm");
-          const source = fs.readFileSync("/tmp/qx-v22.js","utf8");
-          const body = fs.readFileSync("/tmp/geo-live.json","utf8");
-          let rendered = null;
-          vm.runInNewContext(source,{
-            $response: {statusCode:200,body},
-            $done(value){rendered=value;}
-          },{timeout:2000});
-          if(!rendered || !rendered.title || !rendered.ip ||
-            !rendered.subtitle.includes("v2.2") ||
-            rendered.title.includes("异常")){
-            throw new Error("Live Quantumult X rendering failed");
-          }
-          console.log("Live Quantumult X renderer verified: title, subtitle, ip, description");
-          NODE
-          curl -fsS --retry 3 --retry-delay 3 -D /tmp/qx-check-headers \
-            "$host/qx-check.js" -o /tmp/qx-check.js
-          grep -qi '^x-qx-script-version: 3.0' /tmp/qx-check-headers
-          grep -Fq '自定义 GeoIP 脚本已生效' /tmp/qx-check.js
-          node --check /tmp/qx-check.js
-
-          # Confirm the actual Cloudflare deployment serves the minimal QX script.
-          lite_ready=0
-          for n in $(seq 1 24); do
-            if curl -fsS --max-time 12 -D /tmp/qx-lite-headers \
-              "$host/qx-lite.js" -o /tmp/qx-lite.js \
-              && grep -qi '^x-qx-script-version: 4.0' /tmp/qx-lite-headers; then
-              lite_ready=1
-              break
-            fi
-            sleep 10
-          done
-          test "$lite_ready" -eq 1
-          node --check /tmp/qx-lite.js
-          curl -fsS --max-time 15 "$host/geo" -o /tmp/qx-lite-data.json
-          node <<'NODE'
-          const vm=require("node:vm"),fs=require("node:fs");
-          const script=fs.readFileSync("/tmp/qx-lite.js","utf8");
-          const body=fs.readFileSync("/tmp/qx-lite-data.json","utf8");
+          const script = fs.readFileSync("/tmp/qx-script.js", "utf8");
+          const body = fs.readFileSync("/tmp/qx-geo.json", "utf8");
           let result;
-          vm.runInNewContext(script,{
-            $response:{statusCode:200,body},
-            $done(value){result=value;}
-          },{timeout:2000});
-          if(!result?.title?.startsWith("✅ ") || !result?.subtitle?.includes("v4.0") ||
-             !result?.ip || !result?.description)throw Error("Minimal QX real-data display failed");
-          console.log("Minimal Quantumult X script with live HTTPS GeoIP response: PASS");
+          vm.runInNewContext(script, {
+            $response: { statusCode: 200, body },
+            $done(value) { result = value; }
+          }, { timeout: 2000 });
+          if (!result || !result.title || !result.subtitle || !result.ip ||
+              !result.description || result.title.includes("查询失败")) {
+            throw new Error("GeoIP script did not produce a valid display");
+          }
+          console.log("Live Quantumult X rendering passed");
           NODE
-
-          # HTTPS query has been verified in Quantumult X and is the production path.
-          curl -fsS --max-time 15 "$host/geo" \
-            | jq -e '.status == "success" and (.query | length) > 0 and (.country | length) > 0'
