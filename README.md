@@ -5,7 +5,7 @@ A lightweight IPv4/IPv6 geolocation checker powered by the [ip2region](https://g
 ## Quantumult X
 
 ```ini
-geo_location_checker = http://qx-ip2region.haonan-h6709.workers.dev/geo, https://qx-ip2region.haonan-h6709.workers.dev/qx-v2.js
+geo_location_checker = http://qx-ip2region.harlanho4.workers.dev/geo, https://qx-ip2region.harlanho4.workers.dev/qx-v2.js
 ```
 
 ## Quantumult X transport compatibility
@@ -29,7 +29,7 @@ If Quantumult X still shows its previous built-in country/ISP result, first
 verify the query transport with the distinct diagnostic script:
 
 ```ini
-geo_location_checker = http://qx-ip2region.haonan-h6709.workers.dev/geo, https://qx-ip2region.haonan-h6709.workers.dev/qx-check.js
+geo_location_checker = http://qx-ip2region.harlanho4.workers.dev/geo, https://qx-ip2region.harlanho4.workers.dev/qx-check.js
 ```
 
 The diagnostic result visibly displays "自定义 GeoIP 脚本已生效" and
@@ -42,9 +42,9 @@ After updating your profile, use the versioned `/qx-v2.js` path shown above and 
 
 ## Live endpoints
 
-- [GeoIP query](https://qx-ip2region.haonan-h6709.workers.dev/geo): returns ip-api-compatible fields for the **requester's exit IP**, including country, province, city, ISP and country code.
-- [Quantumult X display script, v2.1](https://qx-ip2region.haonan-h6709.workers.dev/qx-v2.js) (versioned URL to bypass client script caches).
-- [Health](https://qx-ip2region.haonan-h6709.workers.dev/health): active XDB version hashes and display script version.
+- [GeoIP query](https://qx-ip2region.harlanho4.workers.dev/geo): returns ip-api-compatible fields for the **requester's exit IP**, including country, province, city, ISP and country code.
+- [Quantumult X display script, v2.1](https://qx-ip2region.harlanho4.workers.dev/qx-v2.js) (versioned URL to bypass client script caches).
+- [Health](https://qx-ip2region.harlanho4.workers.dev/health): active XDB version hashes and display script version.
 
 ## Architecture
 
