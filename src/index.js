@@ -289,6 +289,8 @@ export async function checkCode(env) {
   return {changed:true,sha:latest};
 }
 
+const QX_LITE_VERSION = "4.0";
+const qxLiteJs = "// Quantumult X GeoIP · minimal proven renderer · v4.0\nvar responseCode = typeof $response === \"undefined\" ? \"none\" : String($response.statusCode);\nvar detectedIP = \"\";\nvar country = \"未知地区\";\nvar city = \"\";\nvar isp = \"运营商未知\";\nvar province = \"\";\ntry {\n  var payload = JSON.parse($response.body);\n  detectedIP = payload && typeof payload.query === \"string\" ? payload.query : \"\";\n  country = payload && typeof payload.country === \"string\" && payload.country !== \"0\" ? payload.country : country;\n  city = payload && typeof payload.city === \"string\" && payload.city !== \"0\" ? payload.city : \"\";\n  province = payload && typeof payload.regionName === \"string\" && payload.regionName !== \"0\" ? payload.regionName : \"\";\n  isp = payload && typeof payload.isp === \"string\" && payload.isp !== \"0\" ? payload.isp : isp;\n} catch (e) {}\nvar family = detectedIP.indexOf(\":\") >= 0 ? \"IPv6\" : \"IPv4\";\nvar where = city || province;\n$done({\n  title: \"✅ \" + country + (where && where !== country ? \" · \" + where : \"\"),\n  subtitle: \"ip2region v4.0 · \" + isp,\n  ip: detectedIP,\n  description: \"📍 \" + country + (province ? \" › \" + province : \"\") +\n    (city && city !== province ? \" › \" + city : \"\") +\n    \"\\n📡 \" + isp + \"\\n🌐 \" + (detectedIP || \"IP 暂缺\") + \" · \" + family +\n    \"\\n⚙️ HTTP \" + responseCode + \" · ip2region v4.0\"\n});";
 const QX_DIAGNOSTIC_VERSION = "3.0";
 const qxDiagnosticJs = "// QX geo_location_checker diagnostics · 2026-11-04\n// A fixed, visually obvious result confirms script fetching and execution.\nvar responseCode = typeof $response === \"undefined\" ? \"none\" : String($response.statusCode);\nvar detectedIP = \"\";\ntry {\n  var payload = JSON.parse($response.body);\n  detectedIP = payload && typeof payload.query === \"string\" ? payload.query : \"\";\n} catch (e) {}\n$done({\n  title: \"✅ 自定义 GeoIP 脚本已生效\",\n  subtitle: \"QX CHECK · v3.0 · HTTP \" + responseCode,\n  ip: detectedIP,\n  description: \"🧪 诊断脚本加载成功\\n📍 这应当和原来的归属地显示明显不同\\n🌐 IP：\" +\n    (detectedIP || \"暂缺\") + \"\\n⚙️ ip2region / Quantumult X\"\n});";
 const QX_SCRIPT_VERSION = "2.2";
@@ -296,6 +298,7 @@ const qxJs = "// Quantumult X geo_location_checker | ip2region | v2.2\n// Uses t
 export default {
   async fetch(request,env,ctx) {
     const u=new URL(request.url);
+    if(u.pathname==="/qx-lite.js") return new Response(qxLiteJs,{headers:{"content-type":"application/javascript; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-qx-script-version":QX_LITE_VERSION}});
     if(u.pathname==="/qx-check.js") return new Response(qxDiagnosticJs,{headers:{"content-type":"application/javascript; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-qx-script-version":QX_DIAGNOSTIC_VERSION}});
     if(u.pathname==="/qx.js" || u.pathname==="/qx-v2.js" || u.pathname==="/qx-safe.js" || u.pathname==="/qx-v22.js") return new Response(qxJs,{headers:{"content-type":"application/javascript; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-qx-script-version":QX_SCRIPT_VERSION}});
     if(u.pathname==="/health"){
