@@ -25,6 +25,22 @@ geo_location_checker = https://qx-ip2region.haonan-h6709.workers.dev/geo, https:
 - Previous XDB objects and historical manifests are retained for rollback.
 - The API refuses arbitrary IP-query parameters to prevent misuse and uses the Cloudflare client IP header to identify the Quantumult X proxy's exit IP.
 
+## Public repository security
+
+This repository contains only source files and configuration identifiers. Keep
+Cloudflare credentials, local `.env` files and `.dev.vars` files outside of Git.
+The XDB databases remain in a private R2 bucket; public R2 access is disabled.
+The `/geo` endpoint enforces a 60-request-per-minute limit per client egress
+IP and Cloudflare location after deployment of the current Wrangler config.
+See [SECURITY.md](SECURITY.md) for the threat model and disclosure process.
+
+To enable Cloudflare Workers Builds, connect only this repository to the
+existing `qx-ip2region` Worker, use `main` as the production branch,
+set the build command to `npm run build` and deployment command to
+`npx wrangler deploy`, and disable branch/PR previews until a separate
+test-only R2 bucket is configured. GitHub actions or untrusted preview code
+must never receive production Cloudflare credentials or production R2 bindings.
+
 ## Development and deployment
 
 ```bash
@@ -56,4 +72,4 @@ The `org` field is deliberately empty; ip2region's public dataset does not inclu
 
 ## Attribution
 
-ip2region XDB databases © ip2region contributors, Apache-2.0. This repository uses the upstream data and documents the original project URL.
+ip2region XDB databases © ip2region contributors, Apache-2.0 OR MIT. This repository uses the upstream data and documents the original project URL.
