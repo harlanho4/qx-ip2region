@@ -11,6 +11,63 @@ const textDecoder = new TextDecoder();
 let activeCache = null;
 let activeUntil = 0;
 const indexes = new Map();
+// Bounded per-isolate caches. Cache keys include the immutable XDB object key,
+// so a database refresh cannot reuse stale index/region data.
+const SEGMENT_CACHE_BYTES = 128 * 1024;
+const SEGMENT_CACHE_ENTRIES = 16;
+const RESULT_CACHE_ENTRIES = 256;
+const segments = new Map();
+const recentRegions = new Map();
+
+function remember(map, key, value, maxEntries) {
+  map.delete(key);
+  map.set(key, value);
+  if (map.size > maxEntries) map.delete(map.keys().next().value);
+}
+
+function cachedRegion(key) {
+  if (!recentRegions.has(key)) return null;
+  const value = recentRegions.get(key);
+  remember(recentRegions, key, value, RESULT_CACHE_ENTRIES);
+  return value;
+}
+
+// For large prefixes, a bounded slab read narrows multiple binary-search
+// steps in one R2 operation instead of reading individual index records.
+async function locateInLargeSegment(env, key, ip, version, start, count, recordSize) {
+  let low = 0, high = count - 1;
+  const slabRecords = Math.max(1, Math.floor(32 * 1024 / recordSize));
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const first = Math.max(low, middle - Math.floor(slabRecords / 2));
+    const last = Math.min(high, first + slabRecords - 1);
+    const bytes = await rangeRead(env, key, start + first * recordSize, (last - first + 1) * recordSize);
+    if (compare(ip, bytes, 0, version) < 0) {
+      high = first - 1;
+      continue;
+    }
+    if (compare(ip, bytes, (last - first) * recordSize + ip.length, version) > 0) {
+      low = last + 1;
+      continue;
+    }
+    return findRecord(ip, version, bytes, recordSize);
+  }
+  return null;
+}
+
+function findRecord(ip, version, bytes, recordSize) {
+  let low = 0, high = Math.floor(bytes.length / recordSize) - 1;
+  while (low <= high) {
+    const mid = (low + high) >>> 1;
+    const pos = mid * recordSize;
+    const a = compare(ip, bytes, pos, version);
+    const b = compare(ip, bytes, pos + ip.length, version);
+    if (a < 0) high = mid - 1;
+    else if (b > 0) low = mid + 1;
+    else return bytes.subarray(pos, pos + recordSize);
+  }
+  return null;
+}
 const blocked = new Set(["0.0.0.0", "::", "::1"]);
 
 function json(data, status = 200) {
@@ -84,29 +141,46 @@ async function vector(env, key) {
 export async function lookup(env, version, ipBytes, selected) {
   const v = version === 4 ? selected.v4 : selected.v6;
   const key = v.key;
-  const index = await vector(env,key);
-  const position = (ipBytes[0]*256 + ipBytes[1])*8;
-  const start = u32(index,position), end = u32(index,position+4);
-  if(start===0 || end===0 || end<start) return "";
-  const recordLength = version===4?14:38;
-  const count = Math.floor((end-start)/recordLength)+1;
-  if(count<1 || count>50000000) throw new Error("Invalid XDB segment boundaries");
-  let low=0, high=count-1;
-  while(low<=high){
-    const mid = (low+high)>>>1;
-    const record = await rangeRead(env,key,start+mid*recordLength,recordLength);
-    const a = compare(ipBytes,record,0,version);
-    const b = compare(ipBytes,record,ipBytes.length,version);
-    if(a<0) high=mid-1;
-    else if(b>0) low=mid+1;
-    else{
-      const d=ipBytes.length*2;
-      const len=record[d]|(record[d+1]<<8), offset=u32(record,d+2);
-      if(!len || len>16384 || offset<HEADER_SIZE+VECTOR_SIZE) throw new Error("Invalid region pointer");
-      return textDecoder.decode(await rangeRead(env,key,offset,len));
+  const resultKey = key + ":" + Array.from(ipBytes).join(".");
+  const hit = cachedRegion(resultKey);
+  if (hit !== null) return hit;
+
+  const index = await vector(env, key);
+  const prefix = ipBytes[0] * 256 + ipBytes[1];
+  const position = prefix * 8;
+  const start = u32(index, position), end = u32(index, position + 4);
+  if (start === 0 || end === 0 || end < start) return "";
+  const recordLength = version === 4 ? 14 : 38;
+  if ((end - start) % recordLength !== 0) throw new Error("Invalid XDB segment alignment");
+  const count = Math.floor((end - start) / recordLength) + 1;
+  if (count < 1 || count > 50000000) throw new Error("Invalid XDB segment boundaries");
+  const length = count * recordLength;
+  let record;
+  if (length <= SEGMENT_CACHE_BYTES) {
+    const segmentKey = key + ":" + prefix;
+    let promise = segments.get(segmentKey);
+    if (!promise) {
+      promise = rangeRead(env, key, start, length).catch(error => {
+        segments.delete(segmentKey);
+        throw error;
+      });
     }
+    remember(segments, segmentKey, promise, SEGMENT_CACHE_ENTRIES);
+    record = findRecord(ipBytes, version, await promise, recordLength);
+  } else {
+    record = await locateInLargeSegment(env, key, ipBytes, version, start, count, recordLength);
   }
-  return "";
+  if (!record) return "";
+
+  const d = ipBytes.length * 2;
+  const regionLength = record[d] | (record[d + 1] << 8);
+  const regionOffset = u32(record, d + 2);
+  if (!regionLength || regionLength > 16384 || regionOffset < HEADER_SIZE + VECTOR_SIZE) {
+    throw new Error("Invalid region pointer");
+  }
+  const region = textDecoder.decode(await rangeRead(env, key, regionOffset, regionLength));
+  remember(recentRegions, resultKey, region, RESULT_CACHE_ENTRIES);
+  return region;
 }
 export async function checkFile(env,key,version,expectedSize){
   const head=await env.IP_DB.head(key);
