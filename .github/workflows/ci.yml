@@ -34,15 +34,35 @@ jobs:
           curl -fsS --retry 3 --retry-delay 3 "$host/geo" | jq -e '.status == "success" and (.query|length) > 0 and (.country|length) > 0'
           # Assert the deployed version instead of only checking that a JS file exists.
           curl -fsS --retry 3 --retry-delay 3 "$host/health" \
-            | jq -e '.scriptVersion == "2.1"'
+            | jq -e '.scriptVersion == "2.2"'
           curl -fsS --retry 3 --retry-delay 3 -D /tmp/qx-headers \
-            "$host/qx-v2.js" -o /tmp/qx-v2.js
+            "$host/qx-v22.js" -o /tmp/qx-v22.js
           grep -qi '^cache-control: no-store' /tmp/qx-headers
-          grep -qi '^x-qx-script-version: 2.1' /tmp/qx-headers
-          grep -Fq 'Quantumult X GeoIP' /tmp/qx-v2.js
-          grep -Fq 'v2.1' /tmp/qx-v2.js
-          grep -Fq '$done' /tmp/qx-v2.js
-          node --check /tmp/qx-v2.js
+          grep -qi '^x-qx-script-version: 2.2' /tmp/qx-headers
+          grep -Fq 'Quantumult X geo_location_checker' /tmp/qx-v22.js
+          grep -Fq 'v2.2' /tmp/qx-v22.js
+          grep -Fq '$done' /tmp/qx-v22.js
+          node --check /tmp/qx-v22.js
+
+          # Run the exact live script against the exact live HTTPS API response.
+          curl -fsS --retry 3 --retry-delay 3 "$host/geo" -o /tmp/geo-live.json
+          node <<'NODE'
+          const fs = require("node:fs");
+          const vm = require("node:vm");
+          const source = fs.readFileSync("/tmp/qx-v22.js","utf8");
+          const body = fs.readFileSync("/tmp/geo-live.json","utf8");
+          let rendered = null;
+          vm.runInNewContext(source,{
+            $response: {statusCode:200,body},
+            $done(value){rendered=value;}
+          },{timeout:2000});
+          if(!rendered || !rendered.title || !rendered.ip ||
+            !rendered.subtitle.includes("v2.2") ||
+            rendered.title.includes("异常")){
+            throw new Error("Live Quantumult X rendering failed");
+          }
+          console.log("Live Quantumult X renderer verified: title, subtitle, ip, description");
+          NODE
           curl -fsS --retry 3 --retry-delay 3 -D /tmp/qx-check-headers \
             "$host/qx-check.js" -o /tmp/qx-check.js
           grep -qi '^x-qx-script-version: 3.0' /tmp/qx-check-headers
