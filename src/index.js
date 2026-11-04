@@ -135,13 +135,15 @@ async function vector(env, key) {
   if(!indexes.has(key)){
     const p = rangeRead(env,key,HEADER_SIZE,VECTOR_SIZE).catch(e=>{indexes.delete(key); throw e;});
     indexes.set(key,p);
+    // Keep at most two active IPv4/IPv6 generations in each isolate.
+    while (indexes.size > 4) indexes.delete(indexes.keys().next().value);
   }
   return indexes.get(key);
 }
 export async function lookup(env, version, ipBytes, selected) {
   const v = version === 4 ? selected.v4 : selected.v6;
   const key = v.key;
-  const resultKey = key + ":" + Array.from(ipBytes).join(".");
+  const resultKey = key + ":" + ipBytes.join(".");
   const hit = cachedRegion(resultKey);
   if (hit !== null) return hit;
 
