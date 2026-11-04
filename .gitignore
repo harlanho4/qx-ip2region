@@ -1,0 +1,20 @@
+# Dependencies and local Cloudflare state
+node_modules/
+.wrangler/
+dist/
+coverage/
+.DS_Store
+
+# Secrets, credentials and local environment
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account.json
+wrangler.toml.local
