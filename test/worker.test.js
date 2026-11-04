@@ -368,3 +368,29 @@ test("unique v2.2 script endpoint returns same compact renderer over HTTPS", asy
   }
   assert.match(scripts[0],/Uses the same proven top-level execution pattern/);
 });
+
+
+// Production QX renderer uses exactly the same top-level execution model as
+// the proven qx-check.js and always emits a visible version marker.
+test("minimal QX v4.0 script renders real fields and never silently exits", async () => {
+  const {runInNewContext}=await import("node:vm");
+  const response=await worker.fetch(new Request("https://example.com/qx-lite.js"),{IP_DB:{}},{waitUntil(){}});
+  assert.equal(response.status,200);
+  assert.equal(response.headers.get("x-qx-script-version"),"4.0");
+  assert.match(response.headers.get("cache-control"),/no-store/);
+  const script=await response.text();
+  assert.match(script,/\$done/);
+  for(const payload of [
+    {statusCode:200,body:JSON.stringify({query:"1.2.3.4",country:"Taiwan",regionName:"Taiwan",city:"Taipei",isp:"CHUNGHWA TELECOM CO., LTD."})},
+    {statusCode:200,body:JSON.stringify({query:"2001:db8::1",country:"日本",city:"东京",isp:"NTT"})},
+    {statusCode:503,body:"invalid"}
+  ]) {
+    let result;
+    runInNewContext(script,{$response:payload,$done(x){result=x;}});
+    assert.ok(result,"script must always call $done");
+    assert.ok(result.title.startsWith("✅ "));
+    assert.match(result.subtitle,/ip2region v4\.0/);
+    assert.match(result.description,/ip2region v4\.0/);
+    assert.ok("ip" in result);
+  }
+});
