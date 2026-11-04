@@ -6,11 +6,11 @@ A lightweight IPv4/IPv6 geolocation checker powered by the [ip2region](https://g
 
 Use HTTPS for both URLs. The worker JSON endpoint has been verified to
 work over HTTPS in Quantumult X; the original display script was the
-compatibility issue. The v2.2 script uses the same top-level `$done` pattern
+compatibility issue. The v4.0 minimal script uses the same top-level `$done` pattern
 as the working diagnostic script.
 
 ```ini
-geo_location_checker = https://qx-ip2region.harlanho4.workers.dev/geo, https://qx-ip2region.harlanho4.workers.dev/qx-v22.js
+geo_location_checker = https://qx-ip2region.harlanho4.workers.dev/geo, https://qx-ip2region.harlanho4.workers.dev/qx-lite.js
 ```
 
 ### Troubleshooting
@@ -23,21 +23,21 @@ geo_location_checker = https://qx-ip2region.harlanho4.workers.dev/geo, https://q
 ```
 
 A successful diagnostic displays "自定义 GeoIP 脚本已生效" with
-"QX CHECK · v3.0 · HTTP 200". The production `qx-v22.js`
+"QX CHECK · v3.0 · HTTP 200". The production `qx-lite.js`
 script is a compact, top-level JavaScript renderer that always calls `$done`
 and displays the country, locality, ISP, IP family and data provenance.
-The legacy `qx-v2.js` route continues serving the same current renderer
-for compatibility. Using the fresh `qx-v22.js` address avoids cached
+The legacy `qx-v2.js` and `qx-v22.js` routes remain available
+for compatibility. Using the fresh `qx-lite.js` address avoids cached
 copies of older script bodies.
 
 ## Refreshing Quantumult X
 
-After updating your profile, use the versioned `/qx-v22.js` path shown above and apply/reload the active Quantumult X configuration. The former `/qx.js` path is preserved for compatibility but older scripts may remain cached locally by the client. The server sends `Cache-Control: no-store` for both endpoints. Actual presentation is limited to Quantumult X's native title/subtitle/IP/description fields.
+After updating your profile, use the versioned `/qx-lite.js` path shown above and apply/reload the active Quantumult X configuration. The former `/qx.js` path is preserved for compatibility but older scripts may remain cached locally by the client. The server sends `Cache-Control: no-store` for both endpoints. Actual presentation is limited to Quantumult X's native title/subtitle/IP/description fields.
 
 ## Live endpoints
 
 - [GeoIP query](https://qx-ip2region.harlanho4.workers.dev/geo): returns ip-api-compatible fields for the **requester's exit IP**, including country, province, city, ISP and country code.
-- [Quantumult X display script, v2.2](https://qx-ip2region.harlanho4.workers.dev/qx-v22.js) (versioned URL to bypass client script caches).
+- [Quantumult X display script, v4.0](https://qx-ip2region.harlanho4.workers.dev/qx-v22.js) (versioned URL to bypass client script caches).
 - [Health](https://qx-ip2region.harlanho4.workers.dev/health): active XDB version hashes and display script version.
 
 ## Architecture
