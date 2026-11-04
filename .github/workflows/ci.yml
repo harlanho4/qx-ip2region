@@ -66,7 +66,9 @@ jobs:
           task_ready=0
           for attempt in $(seq 1 18); do
             if curl -fsS --max-time 10 "$host/task.js" -o /tmp/qx-task.js \
-              && grep -Fq '$task.fetch(geoRequest)' /tmp/qx-task.js; then
+              && grep -Fq '$task.fetch(geoDetect)' /tmp/qx-task.js
+          grep -Fq 'api.ipify.org?format=json' /tmp/qx-task.js
+          grep -Fq '/lookup4?ip=' /tmp/qx-task.js; then
               task_ready=1
               break
             fi
@@ -74,7 +76,17 @@ jobs:
           done
           test "$task_ready" -eq 1
           node --check /tmp/qx-task.js
-          grep -Fq 'geoRequest.opts = { policy: geoNode }' /tmp/qx-task.js
+          grep -Fq 'geoDetect.opts = { policy: geoNode }' /tmp/qx-task.js
+          grep -Fq 'request.opts = { policy: geoNode }' /tmp/qx-task.js
+
+          curl -fsS --retry 3 --retry-delay 2 "$host/lookup4?ip=8.8.8.8" \
+            -o /tmp/qx-ipv4.json
+          jq -e '.status == "success" and .query == "8.8.8.8" and
+            (.country | length) > 0' /tmp/qx-ipv4.json
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            "$host/lookup4?ip=2001:db8::1")
+          test "$code" = "400"
 
           node <<'NODE'
           const fs = require("node:fs");
