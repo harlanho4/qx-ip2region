@@ -5,14 +5,18 @@ A lightweight IPv4/IPv6 geolocation checker powered by the [ip2region](https://g
 ## Quantumult X
 
 ```ini
-geo_location_checker = https://qx-ip2region.haonan-h6709.workers.dev/geo, https://qx-ip2region.haonan-h6709.workers.dev/qx.js
+geo_location_checker = https://qx-ip2region.haonan-h6709.workers.dev/geo, https://qx-ip2region.haonan-h6709.workers.dev/qx-v2.js
 ```
+
+## Refreshing Quantumult X
+
+After updating your profile, use the versioned `/qx-v2.js` path shown above and apply/reload the active Quantumult X configuration. The former `/qx.js` path is preserved for compatibility but older scripts may remain cached locally by the client. The server sends `Cache-Control: no-store` for both endpoints. Actual presentation is limited to Quantumult X's native title/subtitle/IP/description fields.
 
 ## Live endpoints
 
 - [GeoIP query](https://qx-ip2region.haonan-h6709.workers.dev/geo): returns ip-api-compatible fields for the **requester's exit IP**, including country, province, city, ISP and country code.
-- [Quantumult X display script](https://qx-ip2region.haonan-h6709.workers.dev/qx.js).
-- [Health](https://qx-ip2region.haonan-h6709.workers.dev/health): active XDB version hashes.
+- [Quantumult X display script, v2.1](https://qx-ip2region.haonan-h6709.workers.dev/qx-v2.js) (versioned URL to bypass client script caches).
+- [Health](https://qx-ip2region.haonan-h6709.workers.dev/health): active XDB version hashes and display script version.
 
 ## Architecture
 
