@@ -82,6 +82,21 @@ function ipv4(ip) {
   if (x.length !== 4 || x.some(s => !/^(0|[1-9][0-9]{0,2})$/.test(s) || Number(s)>255)) return null;
   return Uint8Array.from(x.map(Number));
 }
+// Only public unicast IPv4 is accepted for the event-interaction lookup.
+// This endpoint is rate limited using the requester's Cloudflare client IP.
+export function isPublicIPv4(b) {
+  if (!b || b.length !== 4) return false;
+  const a=b[0], c=b[1], d=b[2];
+  if (a===0 || a===10 || a===127 || a>=224) return false;
+  if (a===100 && c>=64 && c<=127) return false;
+  if (a===169 && c===254) return false;
+  if (a===172 && c>=16 && c<=31) return false;
+  if (a===192 && c===168) return false;
+  if (a===192 && c===0 && (d===0 || d===2)) return false;
+  if (a===198 && ((c===18 || c===19) || (c===51 && d===100))) return false;
+  if (a===203 && c===0 && d===113) return false;
+  return true;
+}
 function ipv6(ip) {
   if (ip.includes("%") || !/^[a-fA-F0-9:]+$/.test(ip)) return null;
   const halves = ip.split("::");
@@ -317,7 +332,7 @@ export default {
       const m=await manifest(env);
       return json({ok:!!m,initialized:!!m,updatedAt:m?.updatedAt||null,scriptVersion:QX_SCRIPT_VERSION,versions:m?{v4:m.v4.sha,v6:m.v6.sha}:null},m?200:503);
     }
-    if(u.pathname!=="/geo") return json({error:"Not found"},404);
+    if(u.pathname!=="/geo" && u.pathname!=="/lookup4") return json({error:"Not found"},404);
     if(request.method!=="GET") return json({error:"Method not allowed"},405);
     // Protect R2 Class B operations against automated traffic.
     // The limiter is per egress IP and per Cloudflare location, not a global quota.
@@ -325,7 +340,12 @@ export default {
     const rateKey=request.headers.get("CF-Connecting-IP") || "unknown";
     const decision=await env.GEO_RATE_LIMIT.limit({key:rateKey});
     if(!decision.success) return json({error:"Too many requests"},429);
-    let ip=request.headers.get("CF-Connecting-IP")||"";
+    let ip = request.headers.get("CF-Connecting-IP") || "";
+    if (u.pathname === "/lookup4") {
+      ip = u.searchParams.get("ip") || "";
+      const bytes = ipv4(ip);
+      if (!bytes || !isPublicIPv4(bytes)) return json({error:"A public IPv4 address is required"},400);
+    }
     if(blocked.has(ip)) return json({error:"Invalid address"},400);
     const parsed=parseIP(ip);
     if(!parsed) return json({error:"Invalid client address"},400);
