@@ -109,3 +109,52 @@ test("look up actual IPv4 and IPv6 XDB records using R2 byte ranges", async()=>{
     assert.equal(await lookup(env,version,fixture.bytes,active),fixture.region);
   }
 });
+
+test("scheduled private deploy hook fires once per changed GitHub SHA", async () => {
+  const {checkCode} = await import("../src/index.js");
+  const id="00000000-0000-4000-8000-000000000001";
+  const sha="a".repeat(40);
+  const stored=new Map([["internal/deploy-hook-uuid",id]]);
+  const env={IP_DB:{
+    async get(key) {
+      const raw=stored.get(key);
+      return raw==null?null:{async text(){return raw;},async json(){return JSON.parse(raw);}};
+    },
+    async put(key,value){stored.set(key,value);}
+  }};
+  const originalFetch=globalThis.fetch;
+  let postCount=0;
+  try{
+    globalThis.fetch=async (url,opts={})=>{
+      if(String(url).includes("github.com"))return new Response(JSON.stringify({sha}),{status:200});
+      assert.match(String(url),/workers\/builds\/deploy_hooks/);
+      assert.equal(opts.method,"POST");
+      postCount++;
+      return new Response(JSON.stringify({success:true}),{status:200});
+    };
+    assert.equal((await checkCode(env)).changed,true);
+    assert.equal((await checkCode(env)).changed,false);
+    assert.equal(postCount,1);
+    assert.equal(JSON.parse(stored.get("internal/deploy-last.json")).sha,sha);
+  } finally {globalThis.fetch=originalFetch;}
+});
+
+test("failed deployment hook is retried on the next check", async()=>{
+  const {checkCode}=await import("../src/index.js");
+  const sha="b".repeat(40);
+  const id="00000000-0000-4000-8000-000000000002";
+  const state=new Map([["internal/deploy-hook-uuid",id]]);
+  const env={IP_DB:{
+    async get(key){const v=state.get(key);return v==null?null:{async text(){return v;},async json(){return JSON.parse(v);}};},
+    async put(key,v){state.set(key,v);}
+  }};
+  const originalFetch=globalThis.fetch;
+  try{
+    globalThis.fetch=async url=>{
+      if(String(url).includes("github.com"))return new Response(JSON.stringify({sha}),{status:200});
+      return new Response("failed",{status:503});
+    };
+    await assert.rejects(checkCode(env),/deploy hook failed/);
+    assert.equal(state.has("internal/deploy-last.json"),false);
+  }finally{globalThis.fetch=originalFetch;}
+});
