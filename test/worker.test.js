@@ -231,3 +231,22 @@ test("Quantumult X returns graceful errors for bad HTTP, JSON or absent IP", asy
     assert.equal(output.ip,"");
   }
 });
+
+
+test("versioned Quantumult X endpoint bypasses caches and serves identical script", async()=>{
+  const env={IP_DB:{async get(){return null;}}};
+  const ctx={waitUntil(){}};
+  const old=await worker.fetch(new Request("https://example.com/qx.js"),env,ctx);
+  const fresh=await worker.fetch(new Request("https://example.com/qx-v2.js"),env,ctx);
+  assert.equal(old.status,200);
+  assert.equal(fresh.status,200);
+  assert.equal(old.headers.get("cache-control"),"no-store, max-age=0");
+  assert.equal(fresh.headers.get("cache-control"),"no-store, max-age=0");
+  assert.equal(fresh.headers.get("x-qx-script-version"),"2.1");
+  const a=await old.text(),b=await fresh.text();
+  assert.equal(a,b);
+  assert.match(b,/Quantumult X GeoIP/);
+  assert.match(b,/v2\.1/);
+  const health=await worker.fetch(new Request("https://example.com/health"),env,ctx);
+  assert.equal((await health.json()).scriptVersion,"2.1");
+});
