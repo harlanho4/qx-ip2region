@@ -32,4 +32,14 @@ jobs:
           host=https://qx-ip2region.haonan-h6709.workers.dev
           curl -fsS --retry 3 --retry-delay 3 "$host/health" | jq -e '.initialized == true and .ok == true and (.versions.v4|length) == 40 and (.versions.v6|length) == 40'
           curl -fsS --retry 3 --retry-delay 3 "$host/geo" | jq -e '.status == "success" and (.query|length) > 0 and (.country|length) > 0'
-          curl -fsS --retry 3 --retry-delay 3 "$host/qx.js" | grep -Fq '$done'
+          # Assert the deployed version instead of only checking that a JS file exists.
+          curl -fsS --retry 3 --retry-delay 3 "$host/health" \
+            | jq -e '.scriptVersion == "2.1"'
+          curl -fsS --retry 3 --retry-delay 3 -D /tmp/qx-headers \
+            "$host/qx-v2.js" -o /tmp/qx-v2.js
+          grep -qi '^cache-control: no-store' /tmp/qx-headers
+          grep -qi '^x-qx-script-version: 2.1' /tmp/qx-headers
+          grep -Fq 'Quantumult X GeoIP' /tmp/qx-v2.js
+          grep -Fq 'v2.1' /tmp/qx-v2.js
+          grep -Fq '$done' /tmp/qx-v2.js
+          node --check /tmp/qx-v2.js
