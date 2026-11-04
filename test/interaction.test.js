@@ -91,7 +91,7 @@ test("interaction escapes HTML in user-controlled node name and removes duplicat
   assert.doesNotMatch(result.htmlMessage,/<img/);
   assert.match(result.htmlMessage,/运营商/);
   assert.match(result.htmlMessage,/IPv4/);
-  assert.equal((result.htmlMessage.match(/>上海</g)||[]).length,1);
+  assert.doesNotMatch(result.htmlMessage,/城市<\/td>/);
 });
 
 test("public IPv4 validation blocks private and reserved ranges",()=>{
