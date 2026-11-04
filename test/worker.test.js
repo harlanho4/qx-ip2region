@@ -185,7 +185,7 @@ test("Quantumult X renders elegant country, city, ISP and node tag", async () =>
   assert.match(output.subtitle,/NTT Communications/);
   assert.equal(output.ip,"1.2.3.4");
   assert.match(output.description,/日本 › 东京都 › 东京/);
-  assert.match(output.description,/数据源  ·  ip2region/);
+  assert.match(output.description,/数据源：ip2region/);
   assert.ok(output.description.includes("\n"));
   assert.ok(!output.description.includes("\\n"));
 });
@@ -206,7 +206,7 @@ test("Quantumult X handles IPv6, repeated locations and missing ISP", async () =
   assert.equal(output.title,"🇨🇳 中国 · 上海");
   assert.equal(output.ip,"2001:db8::1");
   assert.match(output.subtitle,/IPv6/);
-  assert.match(output.description,/运营商信息暂缺/);
+  assert.match(output.description,/运营商未知/);
   assert.ok(!output.description.includes("上海  ›  上海"));
 });
 
@@ -245,7 +245,7 @@ test("versioned Quantumult X endpoint bypasses caches and serves identical scrip
   assert.equal(fresh.headers.get("x-qx-script-version"),"2.2");
   const a=await old.text(),b=await fresh.text();
   assert.equal(a,b);
-  assert.match(b,/Quantumult X GeoIP/);
+  assert.match(b,/Quantumult X geo_location_checker/);
   assert.match(b,/v2\.2/);
   const health=await worker.fetch(new Request("https://example.com/health"),env,ctx);
   assert.equal((await health.json()).scriptVersion,"2.2");
