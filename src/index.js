@@ -177,6 +177,44 @@ export async function sync(env){
   }
   return {changed,updatedAt:next.updatedAt};
 }
+
+const CODE_REPOSITORY = "https://api.github.com/repos/harlanho4/qx-ip2region/commits/main";
+const DEPLOY_HOOK_OBJECT = "internal/deploy-hook-uuid";
+const DEPLOY_STATE_OBJECT = "internal/deploy-last.json";
+
+// Failures preserve the previous SHA so that the next scheduled check can retry.
+// The hook UUID is a bearer credential, stored exclusively in private R2.
+export async function checkCode(env) {
+  const [hookObject, stateObject] = await Promise.all([
+    env.IP_DB.get(DEPLOY_HOOK_OBJECT),
+    env.IP_DB.get(DEPLOY_STATE_OBJECT)
+  ]);
+  if (!hookObject) throw new Error("Missing private Cloudflare deploy hook");
+  const id = (await hookObject.text()).trim();
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id))
+    throw new Error("Invalid deploy-hook identifier");
+
+  const response = await fetch(CODE_REPOSITORY, {
+    headers: {"Accept":"application/vnd.github+json","User-Agent":"qx-ip2region-scheduled-build"}
+  });
+  if (!response.ok) throw new Error("GitHub commit polling failed: "+response.status);
+  const latest = (await response.json()).sha;
+  if (!/^[0-9a-f]{40}$/i.test(latest)) throw new Error("Invalid upstream commit SHA");
+  const previous = stateObject ? await stateObject.json() : null;
+  if (previous?.sha === latest) return {changed:false,sha:latest};
+
+  const trigger = await fetch(
+    "https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/"+id,
+    {method:"POST"}
+  );
+  if (!trigger.ok) throw new Error("Cloudflare deploy hook failed: "+trigger.status);
+  // The hook was accepted; any build errors remain visible in Workers Builds.
+  await env.IP_DB.put(DEPLOY_STATE_OBJECT,JSON.stringify({
+    sha:latest,triggeredAt:new Date().toISOString()
+  }),{httpMetadata:{contentType:"application/json"}});
+  return {changed:true,sha:latest};
+}
+
 const qxJs = 'if($response.statusCode!==200){$done({title:"GeoIP 查询失败",subtitle:"请检查 Worker 数据库",ip:"",description:"HTTP "+$response.statusCode});}else{try{var r=JSON.parse($response.body);var a=(r.countryCode||"").toUpperCase();var flag=/^[A-Z]{2}$/.test(a)?Array.from(a).map(function(c){return String.fromCodePoint(c.charCodeAt(0)+127397)}).join(""):"";$done({title:(flag?flag+" ":"")+(r.country||"未知"),subtitle:[r.regionName,r.city,r.isp].filter(Boolean).join(" · "),ip:r.query||"",description:["国家："+(r.country||"未知"),"省份："+(r.regionName||"未知"),"城市："+(r.city||"未知"),"运营商："+(r.isp||"未知"),"数据源：ip2region"].join("\\n")});}catch(e){$done({title:"GeoIP 解析错误",subtitle:String(e),ip:"",description:"Invalid JSON response"});}}';
 export default {
   async fetch(request,env,ctx) {
@@ -211,6 +249,10 @@ export default {
     }
   },
   async scheduled(event,env,ctx) {
-    ctx.waitUntil(sync(env).then(r=>console.log("ip2region update",JSON.stringify(r))).catch(e=>console.error("ip2region update failed",String(e))));
+    if(event.cron==="0 3 * * *") {
+      ctx.waitUntil(sync(env).then(r=>console.log("ip2region update",JSON.stringify(r))).catch(e=>console.error("ip2region update failed",String(e))));
+    } else if(event.cron==="*/10 * * * *") {
+      ctx.waitUntil(checkCode(env).then(r=>console.log("source build check",r.changed)).catch(e=>console.error("source build check failed",String(e))));
+    }
   }
 };
