@@ -29,7 +29,7 @@ geo_location_checker = https://qx-ip2region.harlanho4.workers.dev/geo, https://q
 event-interaction https://qx-ip2region.harlanho4.workers.dev/task.js, tag=GeoIP 查询, img-url=location.fill.viewfinder.system, enabled=true
 ```
 
-触发交互任务并选择节点后，脚本使用 Quantumult X 的 `$environment.params` 和 `$task.fetch({opts:{policy: ...}})`，通过所选节点请求现有的 HTTPS `/geo` 接口。结果以原生弹窗的 `htmlMessage` 展示出口 IP、IPv4/IPv6、国家或地区、省份、城市、运营商、节点名称及查询耗时。请求失败会显示明确的错误提示。
+触发交互任务并选择节点后，脚本使用 `$environment.params` 和 `opts.policy` 通过所选节点访问 ipify 官方 **IPv4 专用接口** `https://api.ipify.org?format=json`，获取节点的公网 IPv4；随后调用本服务 `/lookup4?ip=...`，使用 ip2region IPv4 XDB 返回归属地。弹窗显示出口 **IPv4**、国家或地区、省份、城市、运营商、节点名称和总查询耗时。对于仅有 IPv6 出口的节点，会显示 IPv4 查询失败提示。ipify 仅用于取得 IPv4，地理位置数据全部来自 ip2region。
 
 脚本源码位于 [`scripts/geo_location.js`](scripts/geo_location.js)，与 Worker 的 `/task.js` 响应保持一致。
 
@@ -49,6 +49,7 @@ event-interaction https://qx-ip2region.harlanho4.workers.dev/task.js, tag=GeoIP 
 | 路径 | 说明 |
 | --- | --- |
 | [`/geo`](https://qx-ip2region.harlanho4.workers.dev/geo) | 当前请求出口 IP 的归属地 JSON |
+| [`/lookup4?ip=8.8.8.8`](https://qx-ip2region.harlanho4.workers.dev/lookup4?ip=8.8.8.8) | 公开 IPv4 地址的 ip2region XDB 查询，仅接受有效公网 IPv4，并受限流保护 |
 | [`/qx.js`](https://qx-ip2region.harlanho4.workers.dev/qx.js) | Quantumult X 展示脚本 |
 | [`/task.js`](https://qx-ip2region.harlanho4.workers.dev/task.js) | Quantumult X HTTP 请求 / event-interaction 交互任务脚本 |
 | [`/health`](https://qx-ip2region.harlanho4.workers.dev/health) | 数据库状态、脚本版本和当前数据哈希 |
@@ -62,7 +63,7 @@ event-interaction https://qx-ip2region.harlanho4.workers.dev/task.js, tag=GeoIP 
 - **自动更新**：每天 UTC 03:00（北京时间 11:00）检查上游 IPv4/IPv6 XDB，校验文件格式和示例查询后切换版本，保留旧版本便于回滚。
 - **代码发布**：Cloudflare Workers Builds 从 `main` 构建部署；Worker 每 10 分钟检查仓库提交变更并通过私有 Deploy Hook 触发构建。
 - **测试**：GitHub Actions 对推送和 PR 执行单元测试，每日 UTC 03:30 验证线上健康状态、GeoIP 接口及 `/qx.js` 和 `/task.js`。
-- **访问控制**：R2 保持私有，`/geo` 使用 Cloudflare 限流（每出口 IP 每分钟 60 次，按边缘节点近似计数），不接受指定其他 IP 的查询参数。
+- **访问控制**：R2 保持私有，`/geo` 和 `/lookup4` 使用 Cloudflare 限流（每请求来源 IP 每分钟 60 次，按边缘节点近似计数）。`/geo` 查询当前请求的出口 IP；`/lookup4` 仅接受有效公网 IPv4。
 
 ## 部署
 
