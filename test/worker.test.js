@@ -273,3 +273,60 @@ test("separate QX diagnostic route produces a visibly different UI without relyi
   assert.match(output.description,/诊断脚本加载成功/);
   assert.ok(output.description.includes("\n"));
 });
+
+
+test("batch indexed lookup uses at most three R2 reads on cold prefix and zero on warm repeat", async () => {
+  const {lookup} = await import("../src/index.js");
+  const address = "93.184.216.34";
+  const fixture = makeXdbFixture(4,address,"United States|California|Los Angeles|Example ISP|US");
+  let reads=0;
+  const originalGet = fixture.bucket.get;
+  fixture.bucket.get = async (...args) => {
+    reads++;
+    return originalGet(...args);
+  };
+  const env={IP_DB:fixture.bucket};
+  const manifest={v4:{key:fixture.key}};
+  assert.equal(await lookup(env,4,fixture.bytes,manifest),fixture.region);
+  assert.equal(reads,3,"vector, index batch and region each require one range read");
+  assert.equal(await lookup(env,4,fixture.bytes,manifest),fixture.region);
+  assert.equal(reads,3,"repeat lookups must be served from isolate cache");
+});
+
+test("large IPv4 prefix uses bounded slab search instead of record-by-record R2 requests", async () => {
+  const {lookup} = await import("../src/index.js");
+  const count=9600,recordSize=14,indexBase=256,indexLength=524288;
+  const first=indexBase+indexLength;
+  const region=new TextEncoder().encode("Example|Region|City|Network|US");
+  const bytes=new Uint8Array(first+count*recordSize+region.length);
+  const view=new DataView(bytes.buffer);
+  view.setUint16(0,3,true);
+  view.setUint16(16,4,true);
+  view.setUint16(18,4,true);
+  const prefix=(88*256+77)*8+indexBase;
+  view.setUint32(prefix,first,true);
+  view.setUint32(prefix+4,first+(count-1)*recordSize,true);
+  for (let i=0;i<count;i++) {
+    const pos=first+i*recordSize;
+    const b2=Math.floor(i/256),b3=i%256;
+    bytes.set([b3,b2,77,88,b3,b2,77,88],pos);
+    view.setUint16(pos+8,region.length,true);
+    view.setUint32(pos+10,first+count*recordSize,true);
+  }
+  bytes.set(region,first+count*recordSize);
+  let reads=0;
+  const key="large-segment-88-77-perf.xdb";
+  const env={IP_DB:{
+    async get(k,options) {
+      assert.equal(k,key);
+      reads++;
+      const slice=bytes.slice(options.range.offset,options.range.offset+options.range.length);
+      return {async arrayBuffer(){return slice.buffer;}};
+    }
+  }};
+  const query=parseIP("88.77.20.9").bytes;
+  assert.equal(await lookup(env,4,query,{v4:{key}}),"Example|Region|City|Network|US");
+  assert.ok(reads<=6,"large segment should need only a few slab reads; observed "+reads);
+  assert.equal(await lookup(env,4,query,{v4:{key}}),"Example|Region|City|Network|US");
+  assert.ok(reads<=6,"repeat queries should reuse region cache");
+});
