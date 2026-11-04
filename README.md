@@ -4,46 +4,40 @@ A lightweight IPv4/IPv6 geolocation checker powered by the [ip2region](https://g
 
 ## Quantumult X
 
-```ini
-geo_location_checker = http://qx-ip2region.harlanho4.workers.dev/geo, https://qx-ip2region.harlanho4.workers.dev/qx-v2.js
-```
-
-## Quantumult X transport compatibility
-
-Quantumult X has a reported HTTPS incompatibility for the **first URL** in
-`geo_location_checker` (see
-[crossutility/Quantumult-X#254](https://github.com/crossutility/Quantumult-X/issues/254)).
-The Worker responds with HTTP 200 over both HTTP/1.1 (plain HTTP) and HTTPS
-(HTTP/2); the first URL uses plain HTTP for Quantumult X compatibility.
-The second URL is a JavaScript download and remains HTTPS.
-
-**Privacy note:** The plain HTTP GeoIP response contains the requester's
-public exit IP and approximate geolocation. Network intermediaries may read
-or modify HTTP traffic. Prefer the HTTPS endpoint in clients that support it,
-and switch Quantumult X to the HTTPS endpoint once the incompatibility is fixed.
-The Worker never accepts arbitrary IP query parameters and never requires credentials.
-
-### Diagnostic configuration
-
-If Quantumult X still shows its previous built-in country/ISP result, first
-verify the query transport with the distinct diagnostic script:
+Use HTTPS for both URLs. The worker JSON endpoint has been verified to
+work over HTTPS in Quantumult X; the original display script was the
+compatibility issue. The v2.2 script uses the same top-level `$done` pattern
+as the working diagnostic script.
 
 ```ini
-geo_location_checker = http://qx-ip2region.harlanho4.workers.dev/geo, https://qx-ip2region.harlanho4.workers.dev/qx-check.js
+geo_location_checker = https://qx-ip2region.harlanho4.workers.dev/geo, https://qx-ip2region.harlanho4.workers.dev/qx-v22.js
 ```
 
-The diagnostic result visibly displays "自定义 GeoIP 脚本已生效" and
-"QX CHECK · v3.0 · HTTP 200". It confirms that the first URL completed and
-the script executed. Restore the `qx-v2.js` production script afterwards.
+### Troubleshooting
+
+The diagnostic script is available for distinguishing query transport
+from JavaScript rendering:
+
+```ini
+geo_location_checker = https://qx-ip2region.harlanho4.workers.dev/geo, https://qx-ip2region.harlanho4.workers.dev/qx-check.js
+```
+
+A successful diagnostic displays "自定义 GeoIP 脚本已生效" with
+"QX CHECK · v3.0 · HTTP 200". The production `qx-v22.js`
+script is a compact, top-level JavaScript renderer that always calls `$done`
+and displays the country, locality, ISP, IP family and data provenance.
+The legacy `qx-v2.js` route continues serving the same current renderer
+for compatibility. Using the fresh `qx-v22.js` address avoids cached
+copies of older script bodies.
 
 ## Refreshing Quantumult X
 
-After updating your profile, use the versioned `/qx-v2.js` path shown above and apply/reload the active Quantumult X configuration. The former `/qx.js` path is preserved for compatibility but older scripts may remain cached locally by the client. The server sends `Cache-Control: no-store` for both endpoints. Actual presentation is limited to Quantumult X's native title/subtitle/IP/description fields.
+After updating your profile, use the versioned `/qx-v22.js` path shown above and apply/reload the active Quantumult X configuration. The former `/qx.js` path is preserved for compatibility but older scripts may remain cached locally by the client. The server sends `Cache-Control: no-store` for both endpoints. Actual presentation is limited to Quantumult X's native title/subtitle/IP/description fields.
 
 ## Live endpoints
 
 - [GeoIP query](https://qx-ip2region.harlanho4.workers.dev/geo): returns ip-api-compatible fields for the **requester's exit IP**, including country, province, city, ISP and country code.
-- [Quantumult X display script, v2.1](https://qx-ip2region.harlanho4.workers.dev/qx-v2.js) (versioned URL to bypass client script caches).
+- [Quantumult X display script, v2.2](https://qx-ip2region.harlanho4.workers.dev/qx-v22.js) (versioned URL to bypass client script caches).
 - [Health](https://qx-ip2region.harlanho4.workers.dev/health): active XDB version hashes and display script version.
 
 ## Architecture
