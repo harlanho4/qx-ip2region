@@ -32,6 +32,18 @@ jobs:
           host=https://qx-ip2region.harlanho4.workers.dev
           curl -fsS --retry 3 --retry-delay 3 "$host/health" | jq -e '.initialized == true and .ok == true and (.versions.v4|length) == 40 and (.versions.v6|length) == 40'
           curl -fsS --retry 3 --retry-delay 3 "$host/geo" | jq -e '.status == "success" and (.query|length) > 0 and (.country|length) > 0'
+          # Cloudflare Builds may deploy after the push-triggered GitHub smoke job starts.
+          # Wait until the expected script release is active before validating it.
+          ready=0
+          for attempt in $(seq 1 18); do
+            if curl -fsS --max-time 10 "$host/health" \
+              | jq -e '.scriptVersion == "2.2"' >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 10
+          done
+          test "$ready" -eq 1
           # Assert the deployed version instead of only checking that a JS file exists.
           curl -fsS --retry 3 --retry-delay 3 "$host/health" \
             | jq -e '.scriptVersion == "2.2"'
@@ -68,10 +80,6 @@ jobs:
           grep -qi '^x-qx-script-version: 3.0' /tmp/qx-check-headers
           grep -Fq '自定义 GeoIP 脚本已生效' /tmp/qx-check.js
           node --check /tmp/qx-check.js
-          # Quantumult X currently requires an HTTP first URL on affected clients.
-          # Verify HTTP returns JSON directly rather than redirecting to HTTPS.
-          curl -fsS --max-time 15 --dump-header /tmp/http-geo.headers \
-            "http://qx-ip2region.harlanho4.workers.dev/geo" \
-            -o /tmp/http-geo.json
-          grep -Eqi '^HTTP/1\.[01] 200' /tmp/http-geo.headers
-          jq -e '.status == "success" and (.query | length) > 0 and (.country | length) > 0' /tmp/http-geo.json
+          # HTTPS query has been verified in Quantumult X and is the production path.
+          curl -fsS --max-time 15 "$host/geo" \
+            | jq -e '.status == "success" and (.query | length) > 0 and (.country | length) > 0'
