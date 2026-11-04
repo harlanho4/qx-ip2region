@@ -133,8 +133,8 @@ async function download(env, sha, commitSha, version) {
   await checkFile(env,key,version,size);
   return {key,sha,size};
 }
-async function fileMeta(name) {
-  const response=await fetch(UPSTREAM+"/"+name,{headers:{"accept":"application/vnd.github+json","user-agent":"qx-ip2region-worker"}});
+async function fileMeta(name, commitSha) {
+  const response=await fetch(UPSTREAM+"/"+name+"?ref="+commitSha,{headers:{"accept":"application/vnd.github+json","user-agent":"qx-ip2region-worker"}});
   if(!response.ok) throw new Error("GitHub metadata request failed: "+response.status);
   const data=await response.json();
   if(!/^[a-f0-9]{40}$/.test(data.sha||"") || data.size<500000 || data.size>100000000) throw new Error("Invalid upstream metadata");
@@ -150,7 +150,7 @@ export async function sync(env){
   let changed=false;
   for(const version of [4,6]){
     const label=version===4?"v4":"v6";
-    const meta=await fileMeta(DB[version]);
+    const meta=await fileMeta(DB[version],commitSha);
     if(old?.[label]?.sha===meta.sha) continue;
     const item=await download(env,meta.sha,commitSha,version);
     if(item.size!==meta.size) throw new Error("XDB metadata mismatch");
